@@ -241,7 +241,7 @@ class RealtimeSTFT(nn.Module):
 
     @tr.jit.export
     def audio_to_spec(self, audio: Tensor) -> Tensor:
-        assert audio.shape == (self.batch_size, self.io_n_samples)
+        # assert audio.shape == (self.batch_size, self.io_n_samples)
         # Shift buffer left and insert audio chunk
         self.in_buf = tr.roll(self.in_buf, -self.io_n_samples, dims=1)
         self.in_buf[:, -self.io_n_samples:] = audio
@@ -280,7 +280,7 @@ class RealtimeSTFT(nn.Module):
 
     @tr.jit.export
     def spec_to_audio(self, spec: Tensor) -> Tensor:
-        assert spec.shape == self.model_io_shape
+        # assert spec.shape == self.model_io_shape
         spec = spec[:, :, -self.istft_in_n_frames:]
         if self.use_phase_info:
             phase = self.phase_buf[:, :, -self.istft_in_n_frames:]

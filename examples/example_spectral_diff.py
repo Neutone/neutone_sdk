@@ -147,15 +147,12 @@ if __name__ == '__main__':
     wrapper = SpectralDiffWrapper(rts)
 
     script = tr.jit.script(wrapper.eval())
-    script = tr.jit.freeze(
-        script,
-        preserved_attrs=['do_forward_pass']
-    )
+    script = tr.jit.freeze(script)
     script = tr.jit.optimize_for_inference(script)
 
     root_dir = Path(f'../exports/spectral_diff__sr_{SR}')
     root_dir.mkdir(exist_ok=True, parents=True)
-    test_run(script)
+    test_run(script, multichannel=True)
     success, msg = validate_metadata(metadata)
     assert success
     save_model(script, metadata, root_dir)

@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Tuple
 
 import torch as tr
-from auditioner_sdk.utils import test_run, validate_metadata, save_model
+from auditioner_sdk.utils import test_run, validate_metadata, save_model, \
+    model_to_torchscript
 from torch import Tensor, nn
 
 from auditioner_sdk import WaveformToWaveformBase
@@ -145,10 +146,7 @@ if __name__ == '__main__':
         fade_n_samples=32,
     )
     wrapper = SpectralDiffWrapper(rts)
-
-    script = tr.jit.script(wrapper.eval())
-    script = tr.jit.freeze(script)
-    script = tr.jit.optimize_for_inference(script)
+    script = model_to_torchscript(wrapper, freeze=True, optimize=True)
 
     root_dir = Path(f'../exports/spectral_diff__sr_{SR}')
     root_dir.mkdir(exist_ok=True, parents=True)

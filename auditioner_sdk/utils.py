@@ -3,12 +3,12 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, Any, List, Optional
 from urllib.request import urlopen
 
-import torch
+import torch as tr
 from jsonschema import validate, ValidationError
-from torch import Tensor
+from torch import Tensor, nn
 from torch.jit import ScriptModule
 
 from auditioner_sdk import AuditionerModel
@@ -16,6 +16,19 @@ from auditioner_sdk import AuditionerModel
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+
+
+def model_to_torchscript(model: nn.Module,
+                         freeze: bool = True,
+                         preserved_attrs: Optional[List[str]] = None,
+                         optimize: bool = True) -> ScriptModule:
+    model.eval()
+    script = tr.jit.script(model)
+    if freeze:
+        script = tr.jit.freeze(script, preserved_attrs=preserved_attrs)
+    if optimize:
+        script = tr.jit.optimize_for_inference(script)
+    return script
 
 
 def save_model(model: ScriptModule,
@@ -40,7 +53,7 @@ def save_model(model: ScriptModule,
     root_dir.mkdir(exist_ok=True, parents=True)
 
     # Save model and metadata
-    torch.jit.save(model, root_dir / 'model.pt')
+    tr.jit.save(model, root_dir / 'model.pt')
 
     with open(root_dir / 'metadata.json', 'w') as f:
         json.dump(metadata, f)
@@ -58,7 +71,7 @@ def get_example_inputs(multichannel: bool = False) -> List[Tensor]:
     channels = [random.randint(1, max_channels) for _ in range(num_inputs)]
     # sizes = [random.randint(2048, 396000) for _ in range(num_inputs)]
     sizes = [2048 for _ in range(num_inputs)]
-    return [torch.rand((c, s)) for c, s in zip(channels, sizes)]
+    return [tr.rand((c, s)) for c, s in zip(channels, sizes)]
 
 
 def test_run(model: AuditionerModel, multichannel: bool = False) -> None:

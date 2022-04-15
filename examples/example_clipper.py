@@ -1,82 +1,91 @@
-import torch
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Optional, Dict, List, Union
+
+import torch as tr
 import torch.nn as nn
+from torch import Tensor
+
+from neutone_sdk import WaveformToWaveformBase, Parameter
+from neutone_sdk.utils import model_to_torchscript, test_run, save_model
+
+logging.basicConfig()
+log = logging.getLogger(__name__)
+log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+
+# TODO(christhetree): add documentation and model validation
+
 
 class ClipperModel(nn.Module):
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # do the neural net magic!
-        x = torch.clip(x, min=-1.0, max=1.0)
-
+    def forward(self, x: Tensor) -> Tensor:
+        x = tr.clip(x, min=-1.0, max=1.0)
         return x
 
-from auditioner_sdk import WaveformToWaveformBase
 
 class ClipperModelWrapper(WaveformToWaveformBase):
-    
-    def do_forward_pass(self, x: torch.Tensor) -> torch.Tensor:
-        
-        # do any preprocessing here! 
-        # expect x to be a waveform tensor with shape (n_channels, n_samples)
+    def get_model_name(self) -> str:
+        return 'clipper'
 
-        output = self.model(x)
+    def get_model_authors(self) -> List[str]:
+        return ['Christopher Mitcheltree']
 
-        # do any postprocessing here!
-        # the return value should be a multichannel waveform tensor with shape (n_channels, n_samples)
-    
-        return output
+    def get_model_short_description(self) -> str:
+        return "Audio clipper."
 
-metadata = {
-    'sample_rate': 48000, 
-    'domain_tags': ['music', 'speech', 'environmental'],
-    'short_description': 'Use me to clip the signal between 1.0 and -1.0.',
-    'long_description':  'This description can be a max of 280 characters aaaaaaaaaaaaaaaaaaaa.',
-    'tags': ['Clipper'],
-    'labels': ['clipped'],
-    'effect_type': 'waveform-to-waveform',
-    'multichannel': False,
-}
+    def get_model_long_description(self) -> str:
+        return "Clips the input audio between -1 and 1."
 
-from pathlib import Path
-from auditioner_sdk.utils import save_model, validate_metadata, \
-                              get_example_inputs, test_run
+    def get_technical_description(self) -> str:
+        return "Clips the input audio between -1 and 1."
+
+    def get_tags(self) -> List[str]:
+        return ['clipper']
+
+    def get_version(self) -> Union[str, int]:
+        return 1
+
+    def get_parameters(self) -> List[Parameter]:
+        return []
+
+    def is_input_mono(self) -> bool:
+        return False
+
+    def is_output_mono(self) -> bool:
+        return False
+
+    def get_native_sample_rates(self) -> List[int]:
+        return []  # Supports all sample rates
+
+    def get_native_buffer_sizes(self) -> List[int]:
+        return []  # Supports all buffer sizes
+
+    def do_forward_pass(self,
+                        x: Tensor,
+                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+        return self.model.forward(x)
 
 
-if __name__ == "__main__":
-
-    torch.set_grad_enabled(False)
-
-    # create a root dir for our model
-    root = Path('exports/clipper-model')
-    root.mkdir(exist_ok=True, parents=True)
-
-    # get our model
+if __name__ == '__main__':
     model = ClipperModel()
-
-    # wrap it
     wrapper = ClipperModelWrapper(model)
+    metadata = wrapper.to_metadata_dict()
+    script = model_to_torchscript(
+        wrapper,
+        freeze=True,
+        preserved_attrs=wrapper.get_preserved_attributes()
+    )
 
-    # serialize it using torch.jit.script, torch.jit.trace,
-    # or a combination of both. 
+    root_dir = Path(f'../exports/clipper')
+    root_dir.mkdir(exist_ok=True, parents=True)
+    test_run(script, multichannel=True)
+    save_model(script, metadata, root_dir)
 
-    # option 1: torch.jit.script 
-    # using torch.jit.script is preferred for most cases, 
-    # but may require changing a lot of source code
-    serialized_model = torch.jit.script(wrapper)
-
-    # option 2: torch.jit.trace
-    # using torch.jit.trace is typically easier, but you
-    # need to be extra careful that your serialized model behaves 
-    # properly after tracing
-    # example_inputs = get_example_inputs()
-    # serialized_model = torch.jit.trace(wrapper, example_inputs[0], 
-    #                                     check_inputs=example_inputs)
-
-    # take your model for a test run!
-    test_run(serialized_model)
-
-    # check that we created our metadata correctly
-    success, msg = validate_metadata(metadata)
-    assert success
-
-    # save!
-    save_model(serialized_model, metadata, root)
+    # Check model was converted correctly
+    script = tr.jit.load(root_dir / 'model.pt')
+    log.info(script.calc_min_delay_samples())
+    log.info(script.flush())
+    log.info(script.reset())
+    log.info(script.set_buffer_size(512))
+    log.info(json.dumps(wrapper.to_metadata_dict(), indent=4))

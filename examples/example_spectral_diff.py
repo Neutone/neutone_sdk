@@ -1,79 +1,22 @@
+import json
 import logging
 import os
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Dict, List, Optional, Union
 
 import torch as tr
-from auditioner_sdk.utils import test_run, validate_metadata, save_model, \
-    model_to_torchscript
 from torch import Tensor, nn
 
-from auditioner_sdk import WaveformToWaveformBase
-from auditioner_sdk.realtime_stft import RealtimeSTFT
+from neutone_sdk import WaveformToWaveformBase, Parameter
+from neutone_sdk.realtime_stft import RealtimeSTFT
+from neutone_sdk.utils import test_run, save_model, model_to_torchscript
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
 
 SR = 44100
-
-metadata = {
-    "model_name": "spectral_diff.test",
-    "model_authors": [
-        "Christopher Mitcheltree"
-    ],
-    "model_short_description": "Neural spectral distortion effect",
-    "model_long_description": "A neural autoencoder reconstructs the spectrogram of the signal which is then subtracted from the original signal's spectrogram.",
-    "technical_description": "TBD once tests are complete.",
-    "technical_links": {
-        "Paper": "",
-        "Code": "",
-    },
-    "tags": [
-        "spectral",
-        "distortion",
-        "autoencoder",
-        "high-pass filter",
-    ],
-    "model_type": "stereo-stereo",
-    "sample_rate": SR,
-    "minimum_buffer_size": 512,
-    "parameters": {
-        "p1": {
-            "used": True,
-            "name": "Spectral dry/wet",
-            "description": "Control how much of the reconstructed spectrogram is subtracted from the original signal's spectrogram.",
-            "type": "knob"
-        },
-        "p2": {
-            "used": False,
-            "name": "",
-            "description": "",
-            "type": "knob"
-        },
-        "p3": {
-            "used": False,
-            "name": "",
-            "description": "",
-            "type": "knob"
-        },
-        "p4": {
-            "used": False,
-            "name": "",
-            "description": "",
-            "type": "knob"
-        }
-    },
-    "version": 1,
-
-    # TODO(christhetree): remove
-    "domain_tags": ["music"],
-    "short_description": "",
-    "long_description": "",
-    "labels": ["spectral", "distortion", "autoencoder", "high-pass filter"],
-    "effect_type": "waveform-to-waveform",
-    "multichannel": True,
-}
+# SR = 48000
 
 
 class SpecCNN2DSmall(nn.Module):
@@ -111,7 +54,73 @@ class SpecCNN2DSmall(nn.Module):
 
 
 class SpectralDiffWrapper(WaveformToWaveformBase):
-    def do_forward_pass(self, x: Tensor) -> Tensor:
+    def get_model_name(self) -> str:
+        return 'spectral_diff.test'
+
+    def get_model_authors(self) -> List[str]:
+        return ['Christopher Mitcheltree']
+
+    def get_model_short_description(self) -> str:
+        return "Neural spectral distortion effect"
+
+    def get_model_long_description(self) -> str:
+        return "A neural autoencoder reconstructs the spectrogram of the signal which is then subtracted from the original signal's spectrogram."
+
+    def get_technical_description(self) -> str:
+        return "TBD once tests are complete."
+
+    def get_tags(self) -> List[str]:
+        return ['spectral', 'distortion', 'autoencoder', 'high-pass filter']
+
+    def get_version(self) -> Union[str, int]:
+        return 1
+
+    def get_parameters(self) -> List[Parameter]:
+        return [
+            Parameter(
+                name='Spectral dry/wet',
+                description="Control how much of the reconstructed spectrogram is subtracted from the original signal's spectrogram.",
+            )
+        ]
+
+    def is_input_mono(self) -> bool:
+        return False
+
+    def is_output_mono(self) -> bool:
+        return False
+
+    def get_native_sample_rates(self) -> List[int]:
+        return [SR]
+
+    def get_native_buffer_sizes(self) -> List[int]:
+        # This model has a maximum buffer size and requires buffer sizes of
+        # specific multiples
+        return self.model.calc_supported_buffer_sizes()
+
+    @tr.jit.export
+    def calc_min_delay_samples(self) -> int:
+        return self.model.calc_min_delay_samples()
+
+    @tr.jit.export
+    def set_buffer_size(self, n_samples: int) -> bool:
+        self.model.set_buffer_size(n_samples)
+        return True
+
+    @tr.jit.export
+    def flush(self) -> Optional[Tensor]:
+        if self.model.calc_min_delay_samples() == 0:
+            return None
+        else:
+            return self.model.flush()
+
+    @tr.jit.export
+    def reset(self) -> bool:
+        self.model.reset()
+        return True
+
+    def do_forward_pass(self,
+                        x: Tensor,
+                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
         return self.model.forward(x)
 
 
@@ -146,11 +155,22 @@ if __name__ == '__main__':
         fade_n_samples=32,
     )
     wrapper = SpectralDiffWrapper(rts)
-    script = model_to_torchscript(wrapper, freeze=True, optimize=True)
+    metadata = wrapper.to_metadata_dict()
+    script = model_to_torchscript(
+        wrapper,
+        freeze=True,
+        preserved_attrs=wrapper.get_preserved_attributes()
+    )
 
     root_dir = Path(f'../exports/spectral_diff__sr_{SR}')
     root_dir.mkdir(exist_ok=True, parents=True)
     test_run(script, multichannel=True)
-    success, msg = validate_metadata(metadata)
-    assert success
     save_model(script, metadata, root_dir)
+
+    # Check model was converted correctly
+    script = tr.jit.load(root_dir / 'model.pt')
+    log.info(script.calc_min_delay_samples())
+    log.info(script.flush())
+    log.info(script.reset())
+    log.info(script.set_buffer_size(512))
+    log.info(json.dumps(wrapper.to_metadata_dict(), indent=4))

@@ -11,22 +11,23 @@ from jsonschema import validate, ValidationError
 from torch import Tensor, nn
 from torch.jit import ScriptModule
 
-from auditioner_sdk import AuditionerModel
-
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
 
+# TODO(christhetree): clean up and improve metadata validation
+
 
 def model_to_torchscript(model: nn.Module,
-                         freeze: bool = True,
+                         freeze: bool = False,
                          preserved_attrs: Optional[List[str]] = None,
-                         optimize: bool = True) -> ScriptModule:
+                         optimize: bool = False) -> ScriptModule:
     model.eval()
     script = tr.jit.script(model)
     if freeze:
         script = tr.jit.freeze(script, preserved_attrs=preserved_attrs)
     if optimize:
+        log.warning(f'Optimizing may break the model.')
         script = tr.jit.optimize_for_inference(script)
     return script
 
@@ -74,7 +75,7 @@ def get_example_inputs(multichannel: bool = False) -> List[Tensor]:
     return [tr.rand((c, s)) for c, s in zip(channels, sizes)]
 
 
-def test_run(model: AuditionerModel, multichannel: bool = False) -> None:
+def test_run(model: 'NeutoneModel', multichannel: bool = False) -> None:
     """
     Performs a couple of test forward passes with audio tensors of different sizes.
     Possible inputs are audio tensors with shape (n_channels, n_samples).
@@ -82,7 +83,7 @@ def test_run(model: AuditionerModel, multichannel: bool = False) -> None:
       an assertion will be triggered by the respective class.
 
       Args:
-        model (AuditionerModel): Your model, wrapped in either WaveformToWaveformBase or WaveformToLabelsBase
+        model (NeutoneModel): Your model, wrapped in either WaveformToWaveformBase or WaveformToLabelsBase
         multichannel (bool): if False, the number of input audio channels will always equal to 1. Otherwise,
                              some stereo test input arrays will be generated.
     Returns:
@@ -122,3 +123,11 @@ def validate_metadata(metadata: dict) -> Tuple[bool, str]:
 
     message = "success! :)"
     return True, message
+
+
+def validate_waveform(x: Tensor) -> None:
+    assert x.ndim == 2, "input must have two dimensions (channels, samples)"
+    assert x.shape[-1] > x.shape[0], \
+        f"The number of channels {x.shape[-2]} exceeds the number of samples " \
+        f"{x.shape[-1]} in your INPUT waveform. There might be something " \
+        f"wrong with your model. "

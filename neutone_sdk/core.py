@@ -11,7 +11,7 @@ from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class NeutoneModel(ABC, nn.Module):
@@ -36,7 +36,8 @@ class NeutoneModel(ABC, nn.Module):
         assert len(self.get_parameters()) <= NeutoneModel.MAX_N_PARAMS
         # Ensure parameter names are unique
         assert len(set([p.name for p in self.get_parameters()])) == len(
-            self.get_parameters())
+            self.get_parameters()
+        )
         model.eval()
         self.model = model
 
@@ -94,31 +95,29 @@ class NeutoneModel(ABC, nn.Module):
 
     def to_metadata_dict(self) -> Dict[str, Any]:
         metadata_dict = {
-            'model_name': self.model_name,
-            'model_authors': self.model_authors,
-            'model_short_description': self.model_short_description,
-            'model_long_description': self.model_long_description,
-            'technical_description': self.technical_description,
-            'technical_links': {
-                'Paper': self.technical_paper_link or '',
-                'Code': self.technical_code_link or '',
+            "model_name": self.model_name,
+            "model_authors": self.model_authors,
+            "model_short_description": self.model_short_description,
+            "model_long_description": self.model_long_description,
+            "technical_description": self.technical_description,
+            "technical_links": {
+                "Paper": self.technical_paper_link or "",
+                "Code": self.technical_code_link or "",
             },
-            'tags': self.tags,
-            'version': self.version,
+            "tags": self.tags,
+            "version": self.version,
         }
         parameters_dict = {}
         parameters = self.get_parameters()
         # Ensure there are always MAX_N_PARAMS in the metadata json
         for idx in range(NeutoneModel.MAX_N_PARAMS):
-            k = f'p{idx + 1}'
+            k = f"p{idx + 1}"
             if idx < len(parameters):
                 v = parameters[idx].to_metadata_dict()
             else:
-                v = Parameter(used=False,
-                              name='',
-                              description='').to_metadata_dict()
+                v = Parameter(used=False, name="", description="").to_metadata_dict()
             parameters_dict[k] = v
-        metadata_dict['parameters'] = parameters_dict
+        metadata_dict["parameters"] = parameters_dict
         return metadata_dict
 
 
@@ -134,25 +133,30 @@ class WaveformToLabelsBase(NeutoneModel):
         output = self.do_forward_pass(x)
 
         assert isinstance(output, tuple), "waveform-to-labels output must be a tuple"
-        assert len(output) == 2, \
-            "output tuple must have two elements, e.g. tuple(labels, timestamps)"
+        assert (
+            len(output) == 2
+        ), "output tuple must have two elements, e.g. tuple(labels, timestamps)"
 
         labels = output[0]
         timestamps = output[1]
 
-        assert tr.all(timestamps >= 0).item(), \
-            f"found a timestamp that is less than zero"
+        assert tr.all(
+            timestamps >= 0
+        ).item(), f"found a timestamp that is less than zero"
 
         for timestamp in timestamps:
-            assert timestamp[0] < timestamp[1], \
-                f"timestamp ends ({timestamp[1]}) before it starts ({timestamp[0]})"
+            assert (
+                timestamp[0] < timestamp[1]
+            ), f"timestamp ends ({timestamp[1]}) before it starts ({timestamp[0]})"
 
         assert labels.ndim == 1, "labels tensor should be one dimensional"
 
-        assert labels.shape[0] == timestamps.shape[0], \
-            "time dimension between labels and timestamps tensors must be equal"
-        assert timestamps.shape[1] == 2, \
-            "second dimension of the timestamps tensor must be size 2"
+        assert (
+            labels.shape[0] == timestamps.shape[0]
+        ), "time dimension between labels and timestamps tensors must be equal"
+        assert (
+            timestamps.shape[1] == 2
+        ), "second dimension of the timestamps tensor must be size 2"
         return output
 
     def do_forward_pass(self, x: Tensor) -> (Tensor, Tensor):

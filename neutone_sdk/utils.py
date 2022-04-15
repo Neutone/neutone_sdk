@@ -13,28 +13,28 @@ from torch.jit import ScriptModule
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 # TODO(christhetree): clean up and improve metadata validation
 
 
-def model_to_torchscript(model: nn.Module,
-                         freeze: bool = False,
-                         preserved_attrs: Optional[List[str]] = None,
-                         optimize: bool = False) -> ScriptModule:
+def model_to_torchscript(
+    model: nn.Module,
+    freeze: bool = False,
+    preserved_attrs: Optional[List[str]] = None,
+    optimize: bool = False,
+) -> ScriptModule:
     model.eval()
     script = tr.jit.script(model)
     if freeze:
         script = tr.jit.freeze(script, preserved_attrs=preserved_attrs)
     if optimize:
-        log.warning(f'Optimizing may break the model.')
+        log.warning(f"Optimizing may break the model.")
         script = tr.jit.optimize_for_inference(script)
     return script
 
 
-def save_model(model: ScriptModule,
-               metadata: Dict[str, Any],
-               root_dir: Path) -> None:
+def save_model(model: ScriptModule, metadata: Dict[str, Any], root_dir: Path) -> None:
     """
     Save a compiled torch.jit.ScriptModule, along with a metadata dictionary.
 
@@ -54,9 +54,9 @@ def save_model(model: ScriptModule,
     root_dir.mkdir(exist_ok=True, parents=True)
 
     # Save model and metadata
-    tr.jit.save(model, root_dir / 'model.pt')
+    tr.jit.save(model, root_dir / "model.pt")
 
-    with open(root_dir / 'metadata.json', 'w') as f:
+    with open(root_dir / "metadata.json", "w") as f:
         json.dump(metadata, f)
 
 
@@ -75,7 +75,7 @@ def get_example_inputs(multichannel: bool = False) -> List[Tensor]:
     return [tr.rand((c, s)) for c, s in zip(channels, sizes)]
 
 
-def test_run(model: 'NeutoneModel', multichannel: bool = False) -> None:
+def test_run(model: "NeutoneModel", multichannel: bool = False) -> None:
     """
     Performs a couple of test forward passes with audio tensors of different sizes.
     Possible inputs are audio tensors with shape (n_channels, n_samples).
@@ -97,7 +97,7 @@ def test_run(model: 'NeutoneModel', multichannel: bool = False) -> None:
 
 def load_schema() -> Dict:
     """loads the audacity deep learning json schema for metadata"""
-    url = 'https://raw.githubusercontent.com/hugofloresgarcia/audacity/deeplearning/deeplearning-models/modelcard-schema.json'
+    url = "https://raw.githubusercontent.com/hugofloresgarcia/audacity/deeplearning/deeplearning-models/modelcard-schema.json"
     response = urlopen(url)
     schema = json.loads(response.read())
     return schema
@@ -127,7 +127,8 @@ def validate_metadata(metadata: dict) -> Tuple[bool, str]:
 
 def validate_waveform(x: Tensor) -> None:
     assert x.ndim == 2, "input must have two dimensions (channels, samples)"
-    assert x.shape[-1] > x.shape[0], \
-        f"The number of channels {x.shape[-2]} exceeds the number of samples " \
-        f"{x.shape[-1]} in your INPUT waveform. There might be something " \
+    assert x.shape[-1] > x.shape[0], (
+        f"The number of channels {x.shape[-2]} exceeds the number of samples "
+        f"{x.shape[-1]} in your INPUT waveform. There might be something "
         f"wrong with your model. "
+    )

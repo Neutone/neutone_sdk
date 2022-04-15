@@ -5,11 +5,11 @@ from typing import NamedTuple, Dict, Any
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ParameterType(Enum):
-    KNOB = 'knob'
+    KNOB = "knob"
 
 
 class Parameter(NamedTuple):
@@ -20,8 +20,8 @@ class Parameter(NamedTuple):
 
     def to_metadata_dict(self) -> Dict[str, Any]:
         return {
-            'name': self.name,
-            'description': self.description,
-            'type': self.type.value,
-            'used': self.used,
+            "name": self.name,
+            "description": self.description,
+            "type": self.type.value,
+            "used": self.used,
         }

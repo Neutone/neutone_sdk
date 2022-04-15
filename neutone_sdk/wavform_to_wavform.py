@@ -11,7 +11,7 @@ from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class WaveformToWaveformBase(NeutoneModel):
@@ -64,18 +64,16 @@ class WaveformToWaveformBase(NeutoneModel):
         pass
 
     @abstractmethod
-    def do_forward_pass(self,
-                        x: Tensor,
-                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+    def do_forward_pass(
+        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
+    ) -> Tensor:
         """
         Perform a forward pass on a waveform-to-waveform model.
         TODO(christhetree)
         """
         pass
 
-    def forward(self,
-                x: Tensor,
-                params: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
         """
         Internal forward pass for a WaveformToWaveform model.
         TODO(christhetree)
@@ -147,18 +145,20 @@ class WaveformToWaveformBase(NeutoneModel):
 
     def get_preserved_attributes(self) -> List[str]:
         preserved_attrs = super().get_preserved_attributes()
-        preserved_attrs.extend([
-            self.calc_min_delay_samples.__name__,
-            self.set_buffer_size.__name__,
-            self.flush.__name__,
-            self.reset.__name__,
-        ])
+        preserved_attrs.extend(
+            [
+                self.calc_min_delay_samples.__name__,
+                self.set_buffer_size.__name__,
+                self.flush.__name__,
+                self.reset.__name__,
+            ]
+        )
         return preserved_attrs
 
     def to_metadata_dict(self) -> Dict[str, Any]:
         metadata_dict = super().to_metadata_dict()
-        metadata_dict['input_mono'] = self.input_mono
-        metadata_dict['output_mono'] = self.output_mono
-        metadata_dict['native_sample_rates'] = self.native_sample_rates
-        metadata_dict['native_buffer_sizes'] = self.native_buffer_sizes
+        metadata_dict["input_mono"] = self.input_mono
+        metadata_dict["output_mono"] = self.output_mono
+        metadata_dict["native_sample_rates"] = self.native_sample_rates
+        metadata_dict["native_buffer_sizes"] = self.native_buffer_sizes
         return metadata_dict

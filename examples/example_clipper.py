@@ -13,7 +13,7 @@ from neutone_sdk.utils import model_to_torchscript, test_run, save_model
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 # TODO(christhetree): add documentation and model validation
 
@@ -26,10 +26,10 @@ class ClipperModel(nn.Module):
 
 class ClipperModelWrapper(WaveformToWaveformBase):
     def get_model_name(self) -> str:
-        return 'clipper'
+        return "clipper"
 
     def get_model_authors(self) -> List[str]:
-        return ['Christopher Mitcheltree']
+        return ["Christopher Mitcheltree"]
 
     def get_model_short_description(self) -> str:
         return "Audio clipper."
@@ -41,7 +41,7 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return "Clips the input audio between -1 and 1."
 
     def get_tags(self) -> List[str]:
-        return ['clipper']
+        return ["clipper"]
 
     def get_version(self) -> Union[str, int]:
         return 1
@@ -61,29 +61,27 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 
-    def do_forward_pass(self,
-                        x: Tensor,
-                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+    def do_forward_pass(
+        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
+    ) -> Tensor:
         return self.model.forward(x)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     model = ClipperModel()
     wrapper = ClipperModelWrapper(model)
     metadata = wrapper.to_metadata_dict()
     script = model_to_torchscript(
-        wrapper,
-        freeze=True,
-        preserved_attrs=wrapper.get_preserved_attributes()
+        wrapper, freeze=True, preserved_attrs=wrapper.get_preserved_attributes()
     )
 
-    root_dir = Path(f'../exports/clipper')
+    root_dir = Path(f"../exports/clipper")
     root_dir.mkdir(exist_ok=True, parents=True)
     test_run(script, multichannel=True)
     save_model(script, metadata, root_dir)
 
     # Check model was converted correctly
-    script = tr.jit.load(root_dir / 'model.pt')
+    script = tr.jit.load(root_dir / "model.pt")
     log.info(script.calc_min_delay_samples())
     log.info(script.flush())
     log.info(script.reset())

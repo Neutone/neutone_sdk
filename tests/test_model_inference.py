@@ -14,4 +14,3 @@ output = model.forward(input)
 
 plt.plot(output.cpu().numpy()[1])
 plt.show()
-

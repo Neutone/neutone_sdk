@@ -1,22 +1,22 @@
 [tool.poetry]
-name = "auditioner_sdk"
+name = "neutone_sdk"
 version = "0.1.0"
-description = "SDK for wrapping deep learning models for deployment in Auditioner"
+description = "SDK for wrapping deep learning models for deployment in Neutone"
 readme = "README.md"
 authors = ["Qosmo <info@qosmo.jp>"]
-homepage = "https://github.com/QosmoInc/AuditionerSDK.git"
+homepage = "https://github.com/QosmoInc/neutone-sdk.git"
 license = "MIT"
-packages = [{include = "auditioner_sdk"}]
+packages = [{include = "neutone_sdk"}]
 include = ["assets/*"]
 
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = ">=3.8,<3.9"
 numpy = "1.22.1"
 torch = "1.10.2"
 jsonschema = "^4.4.0"
 torchinfo = "*"
-librosa = "*"
+#librosa = "*"
 matplotlib = "*"
 pytorch-lightning = "^1.5.10"
 SoundFile = "^0.10.3"

@@ -19,8 +19,18 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ClipperModel(nn.Module):
-    def forward(self, x: Tensor) -> Tensor:
-        x = tr.clip(x, min=-1.0, max=1.0)
+    def forward(self, x: Tensor, params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+        if params is None:
+            min_val = -1.0
+            max_val = 1.0
+            gain = 1.0
+            x = tr.clip(x, min=min_val*gain, max=max_val*gain)
+        else:
+            min_val = -params["min"].item()
+            max_val = params["max"].item()
+            gain = params["gain"].item()
+            x = tr.clip(x, min=min_val*gain, max=max_val*gain)
+
         return x
 
 
@@ -47,7 +57,9 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return 1
 
     def get_parameters(self) -> List[Parameter]:
-        return []
+        return [Parameter("min", "min clip threshold"),
+         Parameter("max", "max clip threshold"),
+         Parameter("gain", "scale clip threshold")]
 
     def is_input_mono(self) -> bool:
         return False
@@ -61,10 +73,9 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 
-    def do_forward_pass(
-        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
-    ) -> Tensor:
-        return self.model.forward(x)
+    def do_forward_pass(self, x: Tensor, params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+        x = self.model.forward(x, params)
+        return x
 
 
 if __name__ == "__main__":
@@ -75,7 +86,7 @@ if __name__ == "__main__":
         wrapper, freeze=True, preserved_attrs=wrapper.get_preserved_attributes()
     )
 
-    root_dir = Path(f"../exports/clipper")
+    root_dir = Path(f"exports/clipper")
     root_dir.mkdir(exist_ok=True, parents=True)
     test_run(script, multichannel=True)
     save_model(script, metadata, root_dir)

@@ -53,8 +53,11 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def get_tags(self) -> List[str]:
         return ["clipper"]
 
-    def get_version(self) -> int:
-        return 1
+    def get_model_version(self) -> str:
+        return "1.0.0"
+
+    def is_experimental(self) -> bool:
+        return False
 
     def get_parameters(self) -> List[NeutoneParameter]:
         return [NeutoneParameter("min", "min clip threshold"),

@@ -27,9 +27,12 @@ class WaveformToWaveformMetadata(NamedTuple):
     dry_default_value: float
     output_gain_default_value: float
     tags: List[str]
-    version: int
-    input_mono: bool
-    output_mono: bool
+    model_version: str
+    sdk_version: str
+    citation: str
+    is_experimental: bool
+    is_input_mono: bool
+    is_output_mono: bool
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
 
@@ -171,9 +174,12 @@ class WaveformToWaveformBase(NeutoneModel):
             technical_description=core_metadata.technical_description,
             technical_links=core_metadata.technical_links,
             tags=core_metadata.tags,
-            version=core_metadata.version,
-            input_mono=self.is_input_mono(),
-            output_mono=self.is_output_mono(),
+            model_version=core_metadata.model_version,
+            sdk_version=core_metadata.sdk_version,
+            citation=core_metadata.citation,
+            is_experimental=core_metadata.is_experimental,
+            is_input_mono=self.is_input_mono(),
+            is_output_mono=self.is_output_mono(),
             native_buffer_sizes=self.get_native_buffer_sizes(),
             native_sample_rates=self.get_native_sample_rates(),
         )

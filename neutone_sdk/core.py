@@ -6,6 +6,7 @@ from typing import NamedTuple, Dict, List, Final, Union
 import torch as tr
 from torch import nn
 
+from neutone_sdk import constants
 from neutone_sdk.parameter import NeutoneParameter
 
 logging.basicConfig()
@@ -25,11 +26,15 @@ class CoreMetadata(NamedTuple):
     dry_default_value: float
     output_gain_default_value: float
     tags: List[str]
-    version: int
+    model_version: str
+    sdk_version: str
+    citation: str
+    is_experimental: bool
 
 
 class NeutoneModel(ABC, nn.Module):
     MAX_N_PARAMS: Final[int] = 4
+    SDK_VERSION = constants.SDK_VERSION
 
     # TODO(christhetree): check all preserved_attrs have been exported
     def __init__(self, model: nn.Module) -> None:
@@ -39,6 +44,8 @@ class NeutoneModel(ABC, nn.Module):
         """
         super().__init__()
         self.MAX_N_PARAMS = NeutoneModel.MAX_N_PARAMS
+        self.SDK_VERSION = NeutoneModel.SDK_VERSION
+
         assert len(self.get_parameters()) <= self.MAX_N_PARAMS
         # Ensure parameter names are unique
         assert len(set([p.name for p in self.get_parameters()])) == len(
@@ -85,12 +92,19 @@ class NeutoneModel(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def get_version(self) -> int:
+    def get_model_version(self) -> str:
+        pass
+
+    @abstractmethod
+    def is_experimental(self) -> bool:
         pass
 
     def get_technical_links(self) -> Dict[str, str]:
         return {}
 
+    def get_citation(self) -> str:
+        return ""
+    
     def get_parameters(self) -> List[NeutoneParameter]:
         return []
 
@@ -120,5 +134,8 @@ class NeutoneModel(ABC, nn.Module):
             technical_description=self.get_technical_description(),
             technical_links=self.get_technical_links(),
             tags=self.get_tags(),
-            version=self.get_version(),
+            model_version=self.get_model_version(),
+            sdk_version=self.SDK_VERSION,
+            citation=self.get_citation(),
+            is_experimental=self.is_experimental(),
         )

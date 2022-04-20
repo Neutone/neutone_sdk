@@ -17,6 +17,7 @@ class NeutoneParameter(NamedTuple):
     description: str
     type: NeutoneParameterType = NeutoneParameterType.KNOB
     used: bool = True
+    default_value: float = 0.0
 
     def to_metadata_dict(self) -> Dict[str, str]:
         return {
@@ -24,4 +25,5 @@ class NeutoneParameter(NamedTuple):
             "description": self.description,
             "type": self.type.value,
             "used": str(self.used),
+            "default_value": str(self.default_value),
         }

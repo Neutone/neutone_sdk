@@ -21,6 +21,9 @@ class CoreMetadata(NamedTuple):
     technical_description: str
     technical_links: Dict[str, str]
     neutone_parameters: Dict[str, Dict[str, str]]
+    wet_default_value: float
+    dry_default_value: float
+    output_gain_default_value: float
     tags: List[str]
     version: int
 
@@ -91,6 +94,15 @@ class NeutoneModel(ABC, nn.Module):
     def get_parameters(self) -> List[NeutoneParameter]:
         return []
 
+    def get_wet_default_value(self) -> float:
+        return 1.0
+
+    def get_dry_default_value(self) -> float:
+        return 0.0
+
+    def get_output_gain_default_value(self) -> float:
+        return 0.5
+
     def get_preserved_attributes(self) -> List[str]:
         return [self.to_core_metadata.__name__]
 
@@ -102,6 +114,9 @@ class NeutoneModel(ABC, nn.Module):
             model_short_description=self.get_model_short_description(),
             model_long_description=self.get_model_long_description(),
             neutone_parameters=self.parameters_metadata,
+            wet_default_value=self.get_wet_default_value(),
+            dry_default_value=self.get_dry_default_value(),
+            output_gain_default_value=self.get_output_gain_default_value(),
             technical_description=self.get_technical_description(),
             technical_links=self.get_technical_links(),
             tags=self.get_tags(),

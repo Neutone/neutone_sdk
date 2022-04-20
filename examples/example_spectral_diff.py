@@ -1,15 +1,15 @@
 import json
 import logging
 import os
-from pathlib import Path
-from typing import Tuple, Dict, List, Optional, Union
+from argparse import ArgumentParser
+from typing import Tuple, Dict, List, Optional
 
 import torch as tr
 from torch import Tensor, nn
 
-from neutone_sdk import WaveformToWaveformBase, Parameter
+from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.realtime_stft import RealtimeSTFT
-from neutone_sdk.utils import test_run, save_model, model_to_torchscript
+from neutone_sdk.utils import test_run, model_to_torchscript
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -81,6 +81,10 @@ class SpecCNN2DSmall(nn.Module):
 
 
 class SpectralDiffWrapper(WaveformToWaveformBase):
+    def __init__(self, model: nn.Module, sr: int = SR) -> None:
+        super().__init__(model)
+        self.sr = sr
+
     def get_model_name(self) -> str:
         return "spectral_diff.test"
 
@@ -99,13 +103,13 @@ class SpectralDiffWrapper(WaveformToWaveformBase):
     def get_tags(self) -> List[str]:
         return ["spectral", "distortion", "autoencoder", "high-pass filter"]
 
-    def get_version(self) -> Union[str, int]:
+    def get_version(self) -> int:
         return 1
 
-    def get_parameters(self) -> List[Parameter]:
+    def get_parameters(self) -> List[NeutoneParameter]:
         return [
-            Parameter(
-                name="Spectral dry/wet",
+            NeutoneParameter(
+                name="spec_wetdry_ratio",
                 description="Control how much of the reconstructed spectrogram is subtracted from the original signal's spectrogram.",
             )
         ]
@@ -117,7 +121,7 @@ class SpectralDiffWrapper(WaveformToWaveformBase):
         return False
 
     def get_native_sample_rates(self) -> List[int]:
-        return [SR]
+        return [self.sr]
 
     def get_native_buffer_sizes(self) -> List[int]:
         # This model has a maximum buffer size and requires buffer sizes of
@@ -148,10 +152,21 @@ class SpectralDiffWrapper(WaveformToWaveformBase):
     def do_forward_pass(
         self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
     ) -> Tensor:
-        return self.model.forward(x)
+        if params is None:
+            spec_wetdry_ratio = 1.0
+        else:
+            spec_wetdry_ratio = params["spec_wetdry_ratio"].item()
+
+        return self.model.forward(x, spec_wetdry_ratio)
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("-o",
+                        "--output",
+                        default=f"../exports/spectral_diff__sr_{SR}.pt")
+    args = parser.parse_args()
+
     models_dir = "../models/"
     if SR == 44100:
         model_weights_name = "SpecCNN2DSmall__sr_44100__n_fft_2048__center_True__n_frames_16__pos_spec_False__n_filters_4__epoch=04__val_loss=0.298.pt"
@@ -182,20 +197,18 @@ if __name__ == "__main__":
         fade_n_samples=32,
     )
     wrapper = SpectralDiffWrapper(rts)
-    metadata = wrapper.to_metadata_dict()
+    metadata = wrapper.to_metadata()
     script = model_to_torchscript(
         wrapper, freeze=True, preserved_attrs=wrapper.get_preserved_attributes()
     )
 
-    root_dir = Path(f"../exports/spectral_diff__sr_{SR}")
-    root_dir.mkdir(exist_ok=True, parents=True)
     test_run(script, multichannel=True)
-    save_model(script, metadata, root_dir)
+    tr.jit.save(script, args.output)
 
     # Check model was converted correctly
-    script = tr.jit.load(root_dir / "model.pt")
+    script = tr.jit.load(args.output)
     log.info(script.calc_min_delay_samples())
     log.info(script.flush())
     log.info(script.reset())
     log.info(script.set_buffer_size(512))
-    log.info(json.dumps(wrapper.to_metadata_dict(), indent=4))
+    log.info(json.dumps(wrapper.to_metadata()._asdict(), indent=4))

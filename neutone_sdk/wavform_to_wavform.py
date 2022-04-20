@@ -1,10 +1,10 @@
 import logging
 import os
 from abc import abstractmethod
-from typing import Dict, List, Optional, Any, Final
+from typing import NamedTuple, Dict, List, Optional
 
 import torch as tr
-from torch import nn, Tensor
+from torch import Tensor
 
 from neutone_sdk import NeutoneModel
 from neutone_sdk.utils import validate_waveform
@@ -14,27 +14,24 @@ log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
+# TODO: Convert these to dataclasses once it lands into torch
+class WaveformToWaveformMetadata(NamedTuple):
+    model_name: str
+    model_authors: List[str]
+    model_short_description: str
+    model_long_description: str
+    technical_description: str
+    technical_links: Dict[str, str]
+    neutone_parameters: Dict[str, Dict[str, str]]
+    tags: List[str]
+    version: int
+    input_mono: bool
+    output_mono: bool
+    native_sample_rates: List[int]
+    native_buffer_sizes: List[int]
+
+
 class WaveformToWaveformBase(NeutoneModel):
-    input_mono: Final[bool]
-    output_mono: Final[bool]
-    native_sample_rates: Final[List[int]]
-    native_buffer_sizes: Final[List[int]]
-    min_buffer_size: Final[Optional[int]]
-    max_buffer_size: Final[Optional[int]]
-
-    def __init__(self, model: nn.Module) -> None:
-        super().__init__(model)
-        self.input_mono = self.is_input_mono()
-        self.output_mono = self.is_output_mono()
-        self.native_sample_rates = self.get_native_sample_rates()
-        self.native_buffer_sizes = self.get_native_buffer_sizes()
-        if self.native_buffer_sizes:
-            self.min_buffer_size = min(self.native_buffer_sizes)
-            self.max_buffer_size = max(self.native_buffer_sizes)
-        else:
-            self.min_buffer_size = None
-            self.max_buffer_size = None
-
     @abstractmethod
     def is_input_mono(self) -> bool:
         pass
@@ -64,9 +61,9 @@ class WaveformToWaveformBase(NeutoneModel):
         pass
 
     @abstractmethod
-    def do_forward_pass(
-        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
-    ) -> Tensor:
+    def do_forward_pass(self,
+                        x: Tensor,
+                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
         """
         Perform a forward pass on a waveform-to-waveform model.
         TODO(christhetree)
@@ -151,14 +148,26 @@ class WaveformToWaveformBase(NeutoneModel):
                 self.set_buffer_size.__name__,
                 self.flush.__name__,
                 self.reset.__name__,
+                self.to_metadata.__name__,
             ]
         )
         return preserved_attrs
 
-    def to_metadata_dict(self) -> Dict[str, Any]:
-        metadata_dict = super().to_metadata_dict()
-        metadata_dict["input_mono"] = self.input_mono
-        metadata_dict["output_mono"] = self.output_mono
-        metadata_dict["native_sample_rates"] = self.native_sample_rates
-        metadata_dict["native_buffer_sizes"] = self.native_buffer_sizes
-        return metadata_dict
+    @tr.jit.export
+    def to_metadata(self) -> WaveformToWaveformMetadata:
+        core_metadata = self.to_core_metadata()
+        return WaveformToWaveformMetadata(
+            model_name=core_metadata.model_name,
+            model_authors=core_metadata.model_authors,
+            model_short_description=core_metadata.model_short_description,
+            model_long_description=core_metadata.model_long_description,
+            neutone_parameters=core_metadata.neutone_parameters,
+            technical_description=core_metadata.technical_description,
+            technical_links=core_metadata.technical_links,
+            tags=core_metadata.tags,
+            version=core_metadata.version,
+            input_mono=self.is_input_mono(),
+            output_mono=self.is_output_mono(),
+            native_buffer_sizes=self.get_native_buffer_sizes(),
+            native_sample_rates=self.get_native_sample_rates(),
+        )

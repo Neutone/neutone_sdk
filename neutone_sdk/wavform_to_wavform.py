@@ -1,40 +1,38 @@
 import logging
-import os
 from abc import abstractmethod
-from typing import NamedTuple, Dict, List, Optional
+from typing import NamedTuple, Dict, List, Optional, Final
+from neutone_sdk.parameter import NeutoneParameter
 
 import torch as tr
-from torch import Tensor
+from torch import Tensor, nn
 
 from neutone_sdk import NeutoneModel
 from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-# TODO: Convert these to dataclasses once it lands into torch
 class WaveformToWaveformMetadata(NamedTuple):
     model_name: str
     model_authors: List[str]
+    model_version: str
     model_short_description: str
     model_long_description: str
     technical_description: str
     technical_links: Dict[str, str]
+    tags: List[str]
+    citation: str
+    is_experimental: bool
     neutone_parameters: Dict[str, Dict[str, str]]
     wet_default_value: float
     dry_default_value: float
     output_gain_default_value: float
-    tags: List[str]
-    model_version: str
-    sdk_version: str
-    citation: str
-    is_experimental: bool
     is_input_mono: bool
     is_output_mono: bool
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
+    sdk_version: str
 
 
 class WaveformToWaveformBase(NeutoneModel):
@@ -67,29 +65,44 @@ class WaveformToWaveformBase(NeutoneModel):
         pass
 
     @abstractmethod
-    def do_forward_pass(self,
-                        x: Tensor,
-                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+    def do_forward_pass(
+        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
+    ) -> Tensor:
         """
         Perform a forward pass on a waveform-to-waveform model.
         TODO(christhetree)
         """
         pass
 
+    def remap_params_for_forward_pass(self, params: Tensor) -> Dict[str, Tensor]:
+        """
+        params is expected to be a [n_params, buffer_size] Tensor sent by the plugin.
+
+        By default we take the mean value of each parameter to provide a single value
+        for the current buffer.
+
+        For more fine grained control, override this method to receive the entire inputs.
+        """
+        assert params.shape[0] == len(self.get_parameters())
+        return {
+            param.name: value.mean()
+            for param, value in zip(self.get_parameters(), params)
+        }
+
     def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
         """
         Internal forward pass for a WaveformToWaveform model.
+
+        If params is None, we fill in the default values.
         TODO(christhetree)
         """
-        validate_waveform(x)
         if params is None:
-            x = self.do_forward_pass(x)
-        else:
-            remapped_params = {
-                param.name: params[idx]
-                for idx, param in enumerate(self.get_parameters())
-            }
-            x = self.do_forward_pass(x, remapped_params)
+            # The default params come in as one value by default but for compatibility
+            # with the plugin inputs we repeat them for the size of the buffer
+            params = self.get_default_parameters().repeat(1, x.shape[1])
+        validate_waveform(x)
+
+        x = self.do_forward_pass(x, self.remap_params_for_forward_pass(params))
 
         validate_waveform(x)
         return x
@@ -150,6 +163,8 @@ class WaveformToWaveformBase(NeutoneModel):
         preserved_attrs = super().get_preserved_attributes()
         preserved_attrs.extend(
             [
+                self.get_native_sample_rates.__name__,
+                self.get_native_buffer_sizes.__name__,
                 self.calc_min_delay_samples.__name__,
                 self.set_buffer_size.__name__,
                 self.flush.__name__,

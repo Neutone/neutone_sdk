@@ -1,10 +1,10 @@
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import NamedTuple, Dict, List, Final, Union
+from typing import NamedTuple, Dict, List, Final
 
 import torch as tr
-from torch import nn
+from torch import nn, Tensor
 
 from neutone_sdk import constants
 from neutone_sdk.parameter import NeutoneParameter
@@ -34,7 +34,7 @@ class CoreMetadata(NamedTuple):
 
 class NeutoneModel(ABC, nn.Module):
     MAX_N_PARAMS: Final[int] = 4
-    SDK_VERSION = constants.SDK_VERSION
+    SDK_VERSION: Final[str] = constants.SDK_VERSION
 
     # TODO(christhetree): check all preserved_attrs have been exported
     def __init__(self, model: nn.Module) -> None:
@@ -57,11 +57,14 @@ class NeutoneModel(ABC, nn.Module):
         # Convert parameters to metadata format
         parameters = self.get_parameters()
         if len(parameters) < self.MAX_N_PARAMS:
-            parameters += [NeutoneParameter(
-                name="",
-                description="",
-                used=False,
-            )] * (self.MAX_N_PARAMS - len(parameters))
+            parameters += [
+                NeutoneParameter(
+                    name="",
+                    description="",
+                    used=False,
+                    default_value=0.0,
+                )
+            ] * (self.MAX_N_PARAMS - len(parameters))
         self.parameters_metadata = {
             f"p{idx + 1}": param.to_metadata_dict()
             for idx, param in enumerate(parameters)
@@ -104,9 +107,14 @@ class NeutoneModel(ABC, nn.Module):
 
     def get_citation(self) -> str:
         return ""
-    
+
     def get_parameters(self) -> List[NeutoneParameter]:
         return []
+
+    def get_default_parameters(self) -> Tensor:
+        return tr.tensor(
+            [param.default_value for param in self.get_parameters()]
+        ).reshape(-1, 1)
 
     def get_wet_default_value(self) -> float:
         return 1.0
@@ -118,7 +126,7 @@ class NeutoneModel(ABC, nn.Module):
         return 0.5
 
     def get_preserved_attributes(self) -> List[str]:
-        return [self.to_core_metadata.__name__]
+        return [self.to_core_metadata.__name__, self.get_default_parameters.__name__]
 
     @tr.jit.export
     def to_core_metadata(self) -> CoreMetadata:

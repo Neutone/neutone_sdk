@@ -2,14 +2,17 @@ import json
 import logging
 import os
 from argparse import ArgumentParser
+import pathlib
 from typing import Optional, Dict, List
+from neutone_sdk.audio import AudioSample
 
 import torch as tr
 import torch.nn as nn
 from torch import Tensor
+import torchaudio
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
-from neutone_sdk.utils import model_to_torchscript, test_run
+from neutone_sdk.utils import load_neutone_model, save_neutone_model
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -18,9 +21,7 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 # TODO(christhetree): add documentation and model validation
 class ClipperModel(nn.Module):
-    def forward(self,
-                x: Tensor,
-                params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+    def forward(self, x: Tensor, params: Optional[Dict[str, Tensor]] = None) -> Tensor:
         if params is None:
             min_val = -1.0
             max_val = 1.0
@@ -64,9 +65,15 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return False
 
     def get_parameters(self) -> List[NeutoneParameter]:
-        return [NeutoneParameter("min", "min clip threshold"),
-                NeutoneParameter("max", "max clip threshold"),
-                NeutoneParameter("gain", "scale clip threshold")]
+        return [
+            NeutoneParameter("min", "min clip threshold", default_value=1.0),
+            NeutoneParameter("max", "max clip threshold", default_value=1.0),
+            NeutoneParameter("gain", "scale clip threshold", default_value=1.0),
+        ]
+
+    def get_audio_samples(self) -> List[AudioSample]:
+        audio, sr = torchaudio.load("../neutone_sdk/assets/default-sample.mp3")
+        return [AudioSample(audio, sr), AudioSample(audio, sr)]
 
     def is_input_mono(self) -> bool:
         return False
@@ -80,29 +87,28 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 
-    def do_forward_pass(self, x: Tensor,
-                        params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+    def do_forward_pass(
+        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
+    ) -> Tensor:
         x = self.model.forward(x, params)
         return x
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("-o", "--output", default="../exports/clipper.pt")
+    parser.add_argument("-o", "--output", default="export_model")
     args = parser.parse_args()
+    root_dir = pathlib.Path(args.output)
 
     model = ClipperModel()
     wrapper = ClipperModelWrapper(model)
-    metadata = wrapper.to_metadata()
-    script = model_to_torchscript(
-        wrapper, freeze=True, preserved_attrs=wrapper.get_preserved_attributes()
+    save_neutone_model(
+        wrapper, root_dir, freeze=True, dump_samples=True, submission=True
     )
 
-    test_run(script, multichannel=True)
-    tr.jit.save(script, args.output)
+    script, _ = load_neutone_model(root_dir / "model.nm")
 
     # Check model was converted correctly
-    script = tr.jit.load(args.output)
     log.info(script.calc_min_delay_samples())
     log.info(script.flush())
     log.info(script.reset())

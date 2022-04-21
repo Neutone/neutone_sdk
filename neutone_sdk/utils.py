@@ -3,12 +3,19 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Tuple, Dict, Any, List, Optional
-from urllib.request import urlopen
+from typing import Tuple, Dict, List
+from neutone_sdk.audio import (
+    AudioSamplePair,
+    audio_sample_to_mp3_bytes,
+    get_default_audio_sample,
+    mp3_b64_to_audio_sample,
+    render_audio_sample,
+)
+from neutone_sdk.core import NeutoneModel
+from neutone_sdk.metadata import validate_metadata
 
 import torch as tr
-from jsonschema import validate, ValidationError
-from torch import Tensor, nn
+from torch import Tensor
 from torch.jit import ScriptModule
 
 logging.basicConfig()
@@ -19,29 +26,36 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 def model_to_torchscript(
-    model: nn.Module,
+    model: "NeutoneModel",
     freeze: bool = False,
-    preserved_attrs: Optional[List[str]] = None,
     optimize: bool = False,
 ) -> ScriptModule:
     model.eval()
     script = tr.jit.script(model)
     if freeze:
-        script = tr.jit.freeze(script, preserved_attrs=preserved_attrs)
+        script = tr.jit.freeze(script, preserved_attrs=model.get_preserved_attributes())
     if optimize:
         log.warning(f"Optimizing may break the model.")
         script = tr.jit.optimize_for_inference(script)
     return script
 
 
-def save_model(model: ScriptModule, metadata: Dict[str, Any], root_dir: Path) -> None:
+def save_neutone_model(
+    model: "WaveformToWaveformBase",
+    root_dir: Path,
+    freeze: bool = True,
+    optimize: bool = False,
+    dump_samples: bool = False,
+    submission: bool = False,
+    audio_sample_pairs: List[AudioSamplePair] = None,
+) -> None:
     """
-    Save a compiled torch.jit.ScriptModule, along with a metadata dictionary.
+    Save a Neutone model to disk as a Torchscript file. Additionally include metadata file and samples as needed.
 
     Args:
-        model: your Auditioner-ready serialized model, using either torch.jit.trace or torch.jit.script.
-          Should derive from auditioner_sdk.WaveformToWaveformBase or auditioner_sdk.WaveformToLabelsBase.
-        metadata: a metadata dictionary. Shoule be validated using torchaudio.utils.validate_metadata()
+        model: Your Neutone model. Should derive from neutone_sdk.WaveformToWaveformBase.
+        root_dir: Directory to dump models
+        dump_samples: If true, will additionally dump audio samples from the model for listening.
 
     Returns:
       Will create the following files:
@@ -49,15 +63,65 @@ def save_model(model: ScriptModule, metadata: Dict[str, Any], root_dir: Path) ->
         root_dir/
         root_dir/model.pt
         root_dir/metadata.json
+        root_dir/samples/*
       ```
     """
     root_dir.mkdir(exist_ok=True, parents=True)
 
-    # Save model and metadata
-    tr.jit.save(model, root_dir / "model.pt")
+    script = model_to_torchscript(model, freeze=freeze, optimize=optimize)
+    test_run(script)
 
+    metadata = script.to_metadata()._asdict()
     with open(root_dir / "metadata.json", "w") as f:
-        json.dump(metadata, f)
+        json.dump(metadata, f, indent=4)
+
+    if audio_sample_pairs is None:
+        input_sample = get_default_audio_sample()
+        audio_sample_pairs = [
+            AudioSamplePair(input_sample, render_audio_sample(script, input_sample))
+        ]
+    metadata["sample_sound_files"] = [
+        pair.to_metadata_format() for pair in audio_sample_pairs[:3]
+    ]
+    validate_metadata(metadata)
+    extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
+
+    # Save model and metadata
+    tr.jit.save(script, root_dir / "model.nm", _extra_files=extra_files)
+
+    if dump_samples:
+        os.makedirs(root_dir / "samples", exist_ok=True)
+        for i, sample in enumerate(metadata["sample_sound_files"]):
+            with open(root_dir / "samples" / f"sample_in_{i}.mp3", "wb") as f:
+                f.write(
+                    audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["in"]))
+                )
+            with open(root_dir / "samples" / f"sample_out_{i}.mp3", "wb") as f:
+                f.write(
+                    audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["out"]))
+                )
+
+    if submission:  # Do extra checks
+        loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+        assert loaded_metadata == metadata
+        del loaded_metadata["sample_sound_files"]
+        assert loaded_metadata == loaded_model.to_metadata()._asdict()
+
+        input_sample = audio_sample_pairs[0].input
+        assert tr.allclose(
+            render_audio_sample(model, input_sample).audio,
+            render_audio_sample(loaded_model, input_sample).audio,
+        )
+
+
+def load_neutone_model(path: str) -> Tuple[ScriptModule, Dict]:
+    extra_files = {
+        "metadata.json": "",
+    }
+    model = tr.jit.load(path, _extra_files=extra_files)
+    loaded_metadata = json.loads(extra_files["metadata.json"].decode())
+    assert validate_metadata(loaded_metadata)
+    return model, loaded_metadata
 
 
 def get_example_inputs(multichannel: bool = False) -> List[Tensor]:
@@ -93,36 +157,6 @@ def test_run(model: "NeutoneModel", multichannel: bool = False) -> None:
         y = model(x)
         # plt.plot(y.cpu().numpy()[0])
         # plt.show()
-
-
-def load_schema() -> Dict:
-    """loads the audacity deep learning json schema for metadata"""
-    url = "https://raw.githubusercontent.com/hugofloresgarcia/audacity/deeplearning/deeplearning-models/modelcard-schema.json"
-    response = urlopen(url)
-    schema = json.loads(response.read())
-    return schema
-
-
-def validate_metadata(metadata: dict) -> Tuple[bool, str]:
-    """validate a model metadata dict using Auditioner's metadata schema
-
-    Args:
-        metadata (dict): the metadata dictionary to validate
-
-    Returns:
-        Tuple[bool, str], where the  bool indicates success, and
-        the string contains an error/success message
-    """
-    schema = load_schema()
-
-    try:
-        validate(instance=metadata, schema=schema)
-    except ValidationError as err:
-        log.info(err)
-        return False, str(err)
-
-    message = "success! :)"
-    return True, message
 
 
 def validate_waveform(x: Tensor) -> None:

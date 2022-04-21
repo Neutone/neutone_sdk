@@ -15,9 +15,9 @@ class NeutoneParameterType(Enum):
 class NeutoneParameter(NamedTuple):
     name: str
     description: str
+    default_value: float
     type: NeutoneParameterType = NeutoneParameterType.KNOB
     used: bool = True
-    default_value: float = 0.0
 
     def to_metadata_dict(self) -> Dict[str, str]:
         return {

@@ -25,12 +25,16 @@ class ClipperModel(nn.Module):
             min_val = -1.0
             max_val = 1.0
             gain = 1.0
-        else:
-            min_val = -params["min"].item()
-            max_val = params["max"].item()
-            gain = params["gain"].item()
+            x = tr.clip(x, min=min_val * gain, max=max_val * gain)
 
-        x = tr.clip(x, min=min_val * gain, max=max_val * gain)
+        else:
+            for i in range(x.shape[-1]):
+                min_val = -params["min"][i]
+                max_val = params["max"][i]
+                gain = params["gain"][i]
+                for c in range(x.shape[0]):
+                    x[c][i] = tr.min(tr.max(x[c][i], gain * min_val), gain * max_val)
+
         return x
 
 

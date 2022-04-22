@@ -22,7 +22,15 @@ logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
-# TODO(christhetree): clean up and improve metadata validation
+
+def dump_samples_from_metadata(metadata: Dict, root_dir: Path) -> None:
+    log.info(f"Dumping samples to {root_dir/'samples'}...")
+    os.makedirs(root_dir / "samples", exist_ok=True)
+    for i, sample in enumerate(metadata["sample_sound_files"]):
+        with open(root_dir / "samples" / f"sample_in_{i}.mp3", "wb") as f:
+            f.write(audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["in"])))
+        with open(root_dir / "samples" / f"sample_out_{i}.mp3", "wb") as f:
+            f.write(audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["out"])))
 
 
 def model_to_torchscript(
@@ -68,13 +76,15 @@ def save_neutone_model(
     """
     root_dir.mkdir(exist_ok=True, parents=True)
 
+    log.info("Converting model to torchscript...")
     script = model_to_torchscript(model, freeze=freeze, optimize=optimize)
-    test_run(script)
 
+    log.info("Extracting metadata...")
     metadata = script.to_metadata()._asdict()
     with open(root_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=4)
 
+    log.info("Running model on audio samples...")
     if audio_sample_pairs is None:
         input_sample = get_default_audio_sample()
         audio_sample_pairs = [
@@ -83,30 +93,26 @@ def save_neutone_model(
     metadata["sample_sound_files"] = [
         pair.to_metadata_format() for pair in audio_sample_pairs[:3]
     ]
+    log.info("Validating metadata...")
     validate_metadata(metadata)
     extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
 
-    # Save model and metadata
+    log.info(f"Saving model to {rootdir/'model.nm'}...")
     tr.jit.save(script, root_dir / "model.nm", _extra_files=extra_files)
 
     if dump_samples:
-        os.makedirs(root_dir / "samples", exist_ok=True)
-        for i, sample in enumerate(metadata["sample_sound_files"]):
-            with open(root_dir / "samples" / f"sample_in_{i}.mp3", "wb") as f:
-                f.write(
-                    audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["in"]))
-                )
-            with open(root_dir / "samples" / f"sample_out_{i}.mp3", "wb") as f:
-                f.write(
-                    audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["out"]))
-                )
+        dump_samples_from_metadata(metadata, root_dir / "samples")
 
     if submission:  # Do extra checks
+        log.info("Running submission checks...")
+        log.info("Loading saved model and metadata...")
         loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+        log.info("Assert metadata was saved correctly...")
         assert loaded_metadata == metadata
         del loaded_metadata["sample_sound_files"]
         assert loaded_metadata == loaded_model.to_metadata()._asdict()
 
+        log.info("Assert loaded model output matches output of model before saving...")
         input_sample = audio_sample_pairs[0].input
         assert tr.allclose(
             render_audio_sample(model, input_sample).audio,

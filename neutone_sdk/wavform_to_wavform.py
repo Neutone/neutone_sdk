@@ -50,6 +50,7 @@ class WaveformToWaveformBase(NeutoneModel):
         Returns a list of sample rates that the model was developed and tested
         with. If the list is empty, all common sample rates are assumed to be
         supported.
+
         Example value: [44100, 48000]
         """
         pass
@@ -60,22 +61,45 @@ class WaveformToWaveformBase(NeutoneModel):
         Returns a list of buffer sizes that the model was developed and tested
         with. If the list is empty, all common buffer sizes are assumed to be
         supported.
+
         Example value: [512, 1024, 2048]
         """
         pass
 
     @abstractmethod
-    def do_forward_pass(
-        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
-    ) -> Tensor:
+    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor] = None) -> Tensor:
         """
-        Perform a forward pass on a waveform-to-waveform model.
-        TODO(christhetree)
+        SDK users can overwrite this method to implement the logic for their models.
+
+        Args:
+            x:
+                torch Tensor of shape [num_channels, num_samples]
+                num_channels is 1 if `is_input_mono` is set to True, otherwise 2
+                num_samples will be one of the sizes specificed in native_buffer_sizes
+
+                The sample rate of the audio will also be one of the ones specific in
+                native_sample_rates.
+
+                The best combination is chosen based on the DAW parameters at runtime. If
+                unsure, provide only one value in the lists.
+            params:
+                Python dictionary mapping from parameter names (defined by the values in
+                get_parameters) to values. By default, we aggregate the sample values over the
+                entire buffer and provide the mean value.
+
+                Override the `remap_params_for_forward_pass` method for more fine grained control.
+
+        Returns:
+            torch Tensor of shape [num_channels, num_samples]
+
+            The shape of the output must match the shape of the input.
         """
         pass
 
     def remap_params_for_forward_pass(self, params: Tensor) -> Dict[str, Tensor]:
         """
+        Remaps parameters from the Tensor provided by the plugin to a Python dictionary.
+
         params is expected to be a [n_params, buffer_size] Tensor sent by the plugin.
 
         By default we take the mean value of each parameter to provide a single value

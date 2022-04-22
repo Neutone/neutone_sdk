@@ -72,40 +72,130 @@ class NeutoneModel(ABC, nn.Module):
 
     @abstractmethod
     def get_model_name(self) -> str:
+        """
+        Used to set the model name. This will be displayed on both the
+        website and the plugin.
+
+        Maximum length of 30 characters.
+        """
         pass
 
     @abstractmethod
     def get_model_authors(self) -> List[str]:
+        """
+        Used to set the model authors. This will be displayed on both the
+        website and the plugin.
+
+        Should reflect the name of the people that developed the wrapper
+        of the model using the SDK. Can be different from the authors of
+        the original model.
+
+        Maximum of 5 authors.
+        """
         pass
 
     @abstractmethod
     def get_model_short_description(self) -> str:
+        """
+        Used to set the model short description. This will be displayed on both
+        the website and the plugin.
+
+        This is meant to be seen by the audio creators and should give a summary
+        of what the model does.
+
+        Maximum of 150 characters.
+        """
         pass
 
     @abstractmethod
     def get_model_long_description(self) -> str:
+        """
+        Used to set the model long description. This will be displayed only on
+        the website.
+
+        This is meant to be seen by the audio creators and should give an extensive
+        description of what the model does. Could describe interesting uses of the
+        model, good combinations of parameters, what types of audio has it been
+        tested with etc.
+
+        Maximum of 500 characters.
+        """
         pass
 
     @abstractmethod
     def get_technical_description(self) -> str:
+        """
+        Used to set the model technical description. This will be displayed only on
+        the website.
+
+        This is meant to be seen by other researchers or people that want to develop
+        similar models. It could present a summary of the internals of the model:
+        what architecture it is based on, what kind of data it was trained with,
+        on what kind of hardware.
+
+        If the authors of the plugin are different from the authors of the model(s)
+        included this section along with citation and technical links are places
+        to provide appropiate credits.
+
+        Maximum of 500 characters.
+        """
         pass
 
     @abstractmethod
     def get_tags(self) -> List[str]:
+        """
+        Used to provide a list of tags. This will be displayed on the website and will
+        be used later on for filtering of similar models.
+
+        Maximum of 7 tags of 15 characters each.
+        """
         pass
 
     @abstractmethod
     def get_model_version(self) -> str:
+        """
+        Used to set the model version. This will be displayed on both the website and the plugin.
+
+        We suggest people use semantic versioning for their models, but in a lot of cases it can
+        be overkill. For now we only support showing the latest version of the model.
+
+        Please provide a string like "1", "1.0", "1.0.0", "0.1.0" etc.
+        """
         pass
 
     @abstractmethod
     def is_experimental(self) -> bool:
+        """
+        Used to set the experimental flag. This will be displayed on both the website and the plugin.
+
+        If this flag is set the models will have a special icon next to them signaling to the users of
+        the plugin that this model is an experimental release.
+        """
         pass
 
     def get_technical_links(self) -> Dict[str, str]:
+        """
+        Used to set the hechnical links. These will be displayed only on the website.
+
+        Under the technical description field the following links can be displayed as buttons.
+        This can be used to provide links to the implementation, to scientific paper, personal websites etc.
+
+        While any key-value pair can be provided, we strongly encourage users to provide a dictionary
+        with keys such as Paper, Code, Personal, GitHub, Blog, Twitter, Instagram etc.
+
+        Maximum of 3 links.
+        """
         return {}
 
     def get_citation(self) -> str:
+        """
+        Used to set the citation. This will be displayed only on the website.
+
+        This field is specifically meant to display the citation for a scientific paper that the model
+        is based on, if any. Will be displayed under the technical links. Can be left empty.
+
+        Maximum of 150 characters.
+        """
         return ""
 
     def get_parameters(self) -> List[NeutoneParameter]:

@@ -97,7 +97,7 @@ def save_neutone_model(
     validate_metadata(metadata)
     extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
 
-    log.info(f"Saving model to {rootdir/'model.nm'}...")
+    log.info(f"Saving model to {root_dir/'model.nm'}...")
     tr.jit.save(script, root_dir / "model.nm", _extra_files=extra_files)
 
     if dump_samples:

@@ -92,6 +92,10 @@ SCHEMA = {
         "is_output_mono": {
             "type": "boolean",
         },
+        "model_type": {
+            "type": "string",
+            "enum": ["mono-mono", "mono-stereo", "stereo-mono", "stereo-stereo"],
+        },
         "native_sample_rates": {
             "type": "array",
             "items": {
@@ -143,6 +147,7 @@ SCHEMA = {
         "output_gain_default_value",
         "is_input_mono",
         "is_output_mono",
+        "model_type",
         "native_sample_rates",
         "native_buffer_sizes",
         "sdk_version",

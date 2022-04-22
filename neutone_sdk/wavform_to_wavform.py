@@ -1,10 +1,9 @@
 import logging
 from abc import abstractmethod
-from typing import NamedTuple, Dict, List, Optional, Final
-from neutone_sdk.parameter import NeutoneParameter
+from typing import NamedTuple, Dict, List, Optional
 
 import torch as tr
-from torch import Tensor, nn
+from torch import Tensor
 
 from neutone_sdk import NeutoneModel
 from neutone_sdk.utils import validate_waveform
@@ -30,6 +29,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     output_gain_default_value: float
     is_input_mono: bool
     is_output_mono: bool
+    model_type: str
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
     sdk_version: str
@@ -219,6 +219,7 @@ class WaveformToWaveformBase(NeutoneModel):
             is_experimental=core_metadata.is_experimental,
             is_input_mono=self.is_input_mono(),
             is_output_mono=self.is_output_mono(),
+            model_type=f"{'mono' if self.is_input_mono() else 'stereo'}-{'mono' if self.is_output_mono() else 'stereo'}",
             native_buffer_sizes=self.get_native_buffer_sizes(),
             native_sample_rates=self.get_native_sample_rates(),
         )

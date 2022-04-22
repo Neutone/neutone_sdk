@@ -12,10 +12,13 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 SCHEMA = {
     "type": "object",
     "properties": {
-        "model_name": {"type": "string"},
+        "model_name": {
+            "type": "string",
+            "maxLength": 30,
+        },
         "model_authors": {
             "type": "array",
-            "maxItems": 4,
+            "maxItems": 5,
             "items": {"type": "string"},
             "uniqueItems": True,
         },
@@ -35,6 +38,7 @@ SCHEMA = {
             "maxItems": 7,
             "items": {"type": "string"},
             "uniqueItems": True,
+            "maxLength": 15,
         },
         "citation": {
             "type": "string",
@@ -170,7 +174,11 @@ def validate_metadata(metadata: dict) -> bool:
     # We shouldn't have any problems here but as a sanity check
     for parameter in metadata["neutone_parameters"].values():
         try:
-            float(parameter["default_value"])
+            default_value = float(parameter["default_value"])
+            print(default_value)
+            assert (
+                0.0 <= default_value <= 1.0
+            ), "Default values for NeutoneParameters should be between 0 and 1"
         except:
             log.error(
                 f"Could not convert default_value to float for parameter {parameter['name']} "

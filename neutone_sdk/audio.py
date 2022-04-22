@@ -1,24 +1,34 @@
 import base64
+from dataclasses import dataclass
 import logging
+import math
 import io
 import pkgutil
 import tempfile
-from typing import List, NamedTuple, Optional, Dict
+from typing import Optional
 
 import torch as tr
-from torch import Tensor
+from torch import nn, Tensor
 import torchaudio
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 
 
-class AudioSample(NamedTuple):
+@dataclass
+class AudioSample:
     audio: Tensor
     sr: int
 
+    def __post_init__(self):
+        assert len(self.audio.shape) == 2
+        assert (
+            self.audio.size(0) == 1 or self.audio.size(0) == 2
+        ), "Audio sample audio should be 1 or 2 channels, channels first"
 
-class AudioSamplePair(NamedTuple):
+
+@dataclass
+class AudioSamplePair:
     input: AudioSample
     output: AudioSample
 
@@ -49,7 +59,7 @@ def mp3_b64_to_audio_sample(b64_sample: str) -> AudioSample:
     return AudioSample(audio, sr)
 
 
-def get_default_audio_sample() -> List[AudioSample]:
+def get_default_audio_sample() -> AudioSample:
     """
     Returns a list of audio samples to be displayed on the website.
 
@@ -75,6 +85,7 @@ def render_audio_sample(
     model: "WaveformToWaveformBase",
     input_sample: AudioSample,
     params: Optional[Tensor] = None,
+    output_sr: int = 44100,
 ) -> AudioSample:
     if len(model.get_native_sample_rates()) > 0:
         preferred_sr = model.get_native_sample_rates()[0]
@@ -92,9 +103,16 @@ def render_audio_sample(
 
     if params is None:
         params = model.get_default_parameters()
+
+    audio_len = audio.size(1)
+    padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
+    padded_audio = nn.functional.pad(audio, [0, padding_amount])
     audio_out = tr.hstack(
-        [model.forward(chunk, params) for chunk in audio.split(buffer_size, dim=1)]
-    )
-    if preferred_sr != 44100:
-        audio_out = torchaudio.transforms.Resample(preferred_sr, 44100)(audio_out)
-    return AudioSample(audio_out, 44100)
+        [
+            model.forward(chunk, params)
+            for chunk in padded_audio.split(buffer_size, dim=1)
+        ]
+    )[:, :audio_len]
+    if preferred_sr != output_sr:
+        audio_out = torchaudio.transforms.Resample(preferred_sr, output_sr)(audio_out)
+    return AudioSample(audio_out, output_sr)

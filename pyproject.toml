@@ -7,22 +7,19 @@ authors = ["Qosmo <info@qosmo.jp>"]
 homepage = "https://github.com/QosmoInc/neutone-sdk.git"
 license = "MIT"
 packages = [{include = "neutone_sdk"}]
-include = ["assets/*"]
 
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.9"
-numpy = "1.22.1"
-torch = "1.10.2"
+python = "^3.8"
+numpy = "1.22.3"
+torch = "1.11.0"
+torchaudio = "0.11.0"
 jsonschema = "^4.4.0"
-torchinfo = "*"
-#librosa = "*"
-matplotlib = "*"
-pytorch-lightning = "^1.5.10"
-SoundFile = "^0.10.3"
 
 [tool.poetry.dev-dependencies]
+black = "22.3.0"
 pytest = "*"
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

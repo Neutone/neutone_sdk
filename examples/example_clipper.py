@@ -1,15 +1,13 @@
 import json
 import logging
 import os
-from argparse import ArgumentParser
 import pathlib
+from argparse import ArgumentParser
 from typing import Optional, Dict, List
-from neutone_sdk.audio import AudioSample
 
 import torch as tr
 import torch.nn as nn
 from torch import Tensor
-import torchaudio
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import load_neutone_model, save_neutone_model
@@ -19,7 +17,6 @@ log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-# TODO(christhetree): add documentation and model validation
 class ClipperModel(nn.Module):
     def forward(self, x: Tensor, params: Optional[Dict[str, Tensor]] = None) -> Tensor:
         if params is None:
@@ -27,7 +24,6 @@ class ClipperModel(nn.Module):
             max_val = 1.0
             gain = 1.0
             x = tr.clip(x, min=min_val * gain, max=max_val * gain)
-
         else:
             for i in range(x.shape[-1]):
                 min_val = -params["min"][i]
@@ -35,7 +31,6 @@ class ClipperModel(nn.Module):
                 gain = params["gain"][i]
                 for c in range(x.shape[0]):
                     x[c][i] = tr.min(tr.max(x[c][i], gain * min_val), gain * max_val)
-
         return x
 
 
@@ -64,16 +59,12 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def is_experimental(self) -> bool:
         return False
 
-    def get_parameters(self) -> List[NeutoneParameter]:
+    def get_neutone_params(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter("min", "min clip threshold", default_value=1.0),
             NeutoneParameter("max", "max clip threshold", default_value=1.0),
             NeutoneParameter("gain", "scale clip threshold", default_value=1.0),
         ]
-
-    def get_audio_samples(self) -> List[AudioSample]:
-        audio, sr = torchaudio.load("../neutone_sdk/assets/default-sample.mp3")
-        return [AudioSample(audio, sr), AudioSample(audio, sr)]
 
     def is_input_mono(self) -> bool:
         return False
@@ -86,6 +77,10 @@ class ClipperModelWrapper(WaveformToWaveformBase):
 
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
+
+    def aggregate_param(self, param: Tensor) -> Tensor:
+        assert param.ndim == 1
+        return param  # We want sample-level control, so no aggregation
 
     def do_forward_pass(
         self, x: Tensor, params: Optional[Dict[str, Tensor]] = None

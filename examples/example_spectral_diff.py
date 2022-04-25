@@ -106,7 +106,7 @@ class SpectralDiffWrapper(WaveformToWaveformBase):
     def get_version(self) -> int:
         return 1
 
-    def get_parameters(self) -> List[NeutoneParameter]:
+    def get_neutone_params(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter(
                 name="spec_wetdry_ratio",

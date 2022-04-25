@@ -21,7 +21,7 @@ class CoreMetadata(NamedTuple):
     model_long_description: str
     technical_description: str
     technical_links: Dict[str, str]
-    neutone_parameters: Dict[str, Dict[str, str]]
+    neutone_params: Dict[str, Dict[str, str]]
     wet_default_value: float
     dry_default_value: float
     output_gain_default_value: float
@@ -46,29 +46,32 @@ class NeutoneModel(ABC, nn.Module):
         self.MAX_N_PARAMS = NeutoneModel.MAX_N_PARAMS
         self.SDK_VERSION = NeutoneModel.SDK_VERSION
 
-        assert len(self.get_parameters()) <= self.MAX_N_PARAMS
+        assert len(self.get_neutone_params()) <= self.MAX_N_PARAMS
         # Ensure parameter names are unique
-        assert len(set([p.name for p in self.get_parameters()])) == len(
-            self.get_parameters()
+        assert len(set([p.name for p in self.get_neutone_params()])) == len(
+            self.get_neutone_params()
         )
         model.eval()
         self.model = model
 
-        # Convert parameters to metadata format
-        parameters = self.get_parameters()
-        if len(parameters) < self.MAX_N_PARAMS:
-            parameters += [
+        # Convert neutone_params to metadata format
+        neutone_params = self.get_neutone_params()
+        if len(neutone_params) < self.MAX_N_PARAMS:
+            neutone_params += [
                 NeutoneParameter(
                     name="",
                     description="",
                     used=False,
                     default_value=0.0,
                 )
-            ] * (self.MAX_N_PARAMS - len(parameters))
-        self.parameters_metadata = {
-            f"p{idx + 1}": param.to_metadata_dict()
-            for idx, param in enumerate(parameters)
+            ] * (self.MAX_N_PARAMS - len(neutone_params))
+        self.neutone_params_metadata = {
+            f"p{idx + 1}": neutone_param.to_metadata_dict()
+            for idx, neutone_param in enumerate(neutone_params)
         }
+        default_param_values = tr.tensor(
+            [neutone_param.default_value for neutone_param in neutone_params]).unsqueeze(-1)
+        self.register_buffer('default_param_values', default_param_values)
 
     @abstractmethod
     def get_model_name(self) -> str:
@@ -198,13 +201,12 @@ class NeutoneModel(ABC, nn.Module):
         """
         return ""
 
-    def get_parameters(self) -> List[NeutoneParameter]:
+    def get_neutone_params(self) -> List[NeutoneParameter]:
         return []
 
-    def get_default_parameters(self) -> Tensor:
-        return tr.tensor(
-            [param.default_value for param in self.get_parameters()]
-        ).reshape(-1, 1)
+    @tr.jit.export
+    def get_default_param_values(self) -> Tensor:
+        return self.default_param_values
 
     def get_wet_default_value(self) -> float:
         return 1.0
@@ -216,7 +218,11 @@ class NeutoneModel(ABC, nn.Module):
         return 0.5
 
     def get_preserved_attributes(self) -> List[str]:
-        return [self.to_core_metadata.__name__, self.get_default_parameters.__name__]
+        return [
+            self.to_core_metadata.__name__,
+            self.get_default_param_values.__name__,
+            "default_param_values",  # Since this isn't always used in the forward method, TorchScript ignores it
+        ]
 
     @tr.jit.export
     def to_core_metadata(self) -> CoreMetadata:
@@ -225,7 +231,7 @@ class NeutoneModel(ABC, nn.Module):
             model_authors=self.get_model_authors(),
             model_short_description=self.get_model_short_description(),
             model_long_description=self.get_model_long_description(),
-            neutone_parameters=self.parameters_metadata,
+            neutone_params=self.neutone_params_metadata,
             wet_default_value=self.get_wet_default_value(),
             dry_default_value=self.get_dry_default_value(),
             output_gain_default_value=self.get_output_gain_default_value(),

@@ -5,7 +5,7 @@ import math
 import io
 import pkgutil
 import tempfile
-from typing import Optional
+from typing import Optional, List
 
 import torch as tr
 from torch import nn, Tensor
@@ -59,7 +59,7 @@ def mp3_b64_to_audio_sample(b64_sample: str) -> AudioSample:
     return AudioSample(audio, sr)
 
 
-def get_default_audio_sample() -> AudioSample:
+def get_default_audio_samples() -> List[AudioSample]:
     """
     Returns a list of audio samples to be displayed on the website.
 
@@ -75,10 +75,10 @@ def get_default_audio_sample() -> AudioSample:
         "Using default sample... Please consider using your own audio samples by overriding the get_audio_samples method"
     )
     wave, sr = torchaudio.load(
-        io.BytesIO(pkgutil.get_data(__package__, "assets/default-sample.mp3")),
+        io.BytesIO(pkgutil.get_data(__package__, "assets/default_samples/sample_1.mp3")),
         format="mp3",
     )
-    return AudioSample(wave, sr)
+    return [AudioSample(wave, sr)]
 
 
 def render_audio_sample(
@@ -102,7 +102,7 @@ def render_audio_sample(
         audio = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(audio)
 
     if params is None:
-        params = model.get_default_parameters()
+        params = model.get_default_param_values().repeat(1, buffer_size)
 
     audio_len = audio.size(1)
     padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len

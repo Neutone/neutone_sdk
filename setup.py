@@ -5,17 +5,13 @@ packages = \
 ['neutone_sdk']
 
 package_data = \
-{'': ['*']}
+{'': ['*'], 'neutone_sdk': ['assets/*']}
 
 install_requires = \
-['SoundFile>=0.10.3,<0.11.0',
- 'jsonschema>=4.4.0,<5.0.0',
- 'librosa',
- 'matplotlib',
- 'numpy==1.22.1',
- 'pytorch-lightning>=1.5.10,<2.0.0',
- 'torch==1.10.2',
- 'torchinfo']
+['jsonschema>=4.4.0,<5.0.0',
+ 'numpy==1.22.3',
+ 'torch==1.11.0',
+ 'torchaudio==0.11.0']
 
 setup_kwargs = {
     'name': 'neutone-sdk',
@@ -35,4 +31,3 @@ setup_kwargs = {
 
 
 setup(**setup_kwargs)
-

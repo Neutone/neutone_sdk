@@ -23,7 +23,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     tags: List[str]
     citation: str
     is_experimental: bool
-    neutone_parameters: Dict[str, Dict[str, str]]
+    neutone_params: Dict[str, Dict[str, str]]
     wet_default_value: float
     dry_default_value: float
     output_gain_default_value: float
@@ -96,37 +96,39 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         pass
 
-    def remap_params_for_forward_pass(self, params: Tensor) -> Dict[str, Tensor]:
+    def aggregate_param(self, param: Tensor) -> Tensor:
         """
-        Remaps parameters from the Tensor provided by the plugin to a Python dictionary.
+        Aggregates a parameter of size (buffer_size,) to a single value.
 
-        params is expected to be a [n_params, buffer_size] Tensor sent by the plugin.
-
-        By default we take the mean value of each parameter to provide a single value
+        By default we take the mean value of to provide a single value
         for the current buffer.
 
-        For more fine grained control, override this method to receive the entire inputs.
+        For more fine grained control, override this method as required.
         """
-        assert params.shape[0] == len(self.get_parameters())
-        return {
-            param.name: value.mean()
-            for param, value in zip(self.get_parameters(), params)
-        }
+        assert param.ndim == 1
+        agg_param = tr.mean(param, dim=0, keepdim=True)  # TODO(christhetree): prevent memory allocation
+        return agg_param
 
     def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
         """
         Internal forward pass for a WaveformToWaveform model.
 
         If params is None, we fill in the default values.
-        TODO(christhetree)
         """
         if params is None:
             # The default params come in as one value by default but for compatibility
             # with the plugin inputs we repeat them for the size of the buffer
-            params = self.get_default_parameters().repeat(1, x.shape[1])
+            # TODO(christhetree): try expand instead of repeat to avoid memory allocation
+            params = self.get_default_param_values().repeat(1, x.shape[1])
+
+        assert params.shape == (self.MAX_N_PARAMS, x.shape[1])
         validate_waveform(x)
 
-        x = self.do_forward_pass(x, self.remap_params_for_forward_pass(params))
+        remapped_params = {
+            param.name: self.aggregate_param(value)
+            for param, value in zip(self.get_neutone_params(), params)
+        }
+        x = self.do_forward_pass(x, remapped_params)
 
         validate_waveform(x)
         return x
@@ -206,7 +208,7 @@ class WaveformToWaveformBase(NeutoneModel):
             model_authors=core_metadata.model_authors,
             model_short_description=core_metadata.model_short_description,
             model_long_description=core_metadata.model_long_description,
-            neutone_parameters=core_metadata.neutone_parameters,
+            neutone_params=core_metadata.neutone_params,
             wet_default_value=core_metadata.wet_default_value,
             dry_default_value=core_metadata.dry_default_value,
             output_gain_default_value=core_metadata.output_gain_default_value,

@@ -7,10 +7,11 @@ from typing import Tuple, Dict, List
 from neutone_sdk.audio import (
     AudioSamplePair,
     audio_sample_to_mp3_bytes,
-    get_default_audio_sample,
+    get_default_audio_samples,
     mp3_b64_to_audio_sample,
     render_audio_sample,
 )
+from neutone_sdk.constants import MAX_N_AUDIO_SAMPLES
 from neutone_sdk.core import NeutoneModel
 from neutone_sdk.metadata import validate_metadata
 
@@ -56,6 +57,7 @@ def save_neutone_model(
     dump_samples: bool = False,
     submission: bool = False,
     audio_sample_pairs: List[AudioSamplePair] = None,
+    max_n_samples: int = MAX_N_AUDIO_SAMPLES,
 ) -> None:
     """
     Save a Neutone model to disk as a Torchscript file. Additionally include metadata file and samples as needed.
@@ -86,12 +88,14 @@ def save_neutone_model(
 
     log.info("Running model on audio samples...")
     if audio_sample_pairs is None:
-        input_sample = get_default_audio_sample()
-        audio_sample_pairs = [
-            AudioSamplePair(input_sample, render_audio_sample(script, input_sample))
-        ]
+        input_samples = get_default_audio_samples()
+        audio_sample_pairs = []
+        for input_sample in input_samples:
+            rendered_sample = render_audio_sample(model, input_sample)
+            audio_sample_pairs.append(AudioSamplePair(input_sample, rendered_sample))
+
     metadata["sample_sound_files"] = [
-        pair.to_metadata_format() for pair in audio_sample_pairs[:3]
+        pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
     ]
     log.info("Validating metadata...")
     validate_metadata(metadata)
@@ -101,7 +105,7 @@ def save_neutone_model(
     tr.jit.save(script, root_dir / "model.nm", _extra_files=extra_files)
 
     if dump_samples:
-        dump_samples_from_metadata(metadata, root_dir / "samples")
+        dump_samples_from_metadata(metadata, root_dir)
 
     if submission:  # Do extra checks
         log.info("Running submission checks...")
@@ -113,10 +117,10 @@ def save_neutone_model(
         assert loaded_metadata == loaded_model.to_metadata()._asdict()
 
         log.info("Assert loaded model output matches output of model before saving...")
-        input_sample = audio_sample_pairs[0].input
+        input_samples = audio_sample_pairs[0].input
         assert tr.allclose(
-            render_audio_sample(model, input_sample).audio,
-            render_audio_sample(loaded_model, input_sample).audio,
+            render_audio_sample(model, input_samples).audio,
+            render_audio_sample(loaded_model, input_samples).audio,
         )
 
 

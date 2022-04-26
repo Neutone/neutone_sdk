@@ -18,19 +18,14 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ClipperModel(nn.Module):
-    def forward(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
-        if params is None:
-            min_val = -1.0
-            max_val = 1.0
-            gain = 1.0
-            x = tr.clip(x, min=min_val * gain, max=max_val * gain)
-        else:
-            for i in range(x.shape[-1]):
-                min_val = -params["min"][i]
-                max_val = params["max"][i]
-                gain = params["gain"][i]
-                for c in range(x.shape[0]):
-                    x[c][i] = tr.min(tr.max(x[c][i], gain * min_val), gain * max_val)
+    def forward(
+        self, x: Tensor, min_val: Tensor, max_val: Tensor, gain: Tensor
+    ) -> Tensor:
+        for i in range(x.shape[-1]):
+            for c in range(x.shape[0]):
+                x[c][i] = tr.min(
+                    tr.max(x[c][i], gain[i] * -min_val[i]), gain[i] * max_val[i]
+                )
         return x
 
 
@@ -50,6 +45,9 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def get_technical_description(self) -> str:
         return "Clips the input audio between -1 and 1."
 
+    def get_technical_links(self) -> Dict[str, str]:
+        return {"Code": "https://github.com/QosmoInc/neutone_sdk"}
+
     def get_tags(self) -> List[str]:
         return ["clipper"]
 
@@ -57,7 +55,7 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return "1.0.0"
 
     def is_experimental(self) -> bool:
-        return False
+        return True
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
@@ -83,7 +81,8 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return param  # We want sample-level control, so no aggregation
 
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
-        x = self.model.forward(x, params)
+        min_val, max_val, gain = params["min"], params["max"], params["gain"]
+        x = self.model.forward(x, min_val, max_val, gain)
         return x
 
 

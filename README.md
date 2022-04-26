@@ -198,8 +198,11 @@ To submit a model, please open an issue on the GitHub repository. We currently n
 We welcome any contributions to the SDK. Please add types wherever possible and use the `black` formatter for readability.
 
 The current roadmap is:
-- Finish the implementation of on-the-fly resampling and queueing
+- Finish our implementation for any combination of mono / stereo input and output
+- Finish our implementation of intelligent resampling and queueing for common sample rate and buffer size combinations
 - Additional testing and benchmarking of models during or after exporting
+- General bug fixing and stability improvements
+- Adding our own experimental neural DSP models
 
 <a name="credits"/>
 

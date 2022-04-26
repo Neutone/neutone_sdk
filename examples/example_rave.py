@@ -48,7 +48,7 @@ class RAVEModelWrapper(WaveformToWaveformBase):
     def is_experimental(self) -> bool:
         return False
 
-    def get_parameters(self) -> List[NeutoneParameter]:
+    def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return []
 
     def is_input_mono(self) -> bool:

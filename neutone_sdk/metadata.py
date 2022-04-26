@@ -61,7 +61,7 @@ SCHEMA = {
             },
             "maxItems": 3,
         },
-        "neutone_params": {
+        "neutone_parameters": {
             "type": "object",
             "required": ["p1", "p2", "p3", "p4"],
             "properties": {
@@ -141,7 +141,7 @@ SCHEMA = {
         "citation",
         "is_experimental",
         "sample_sound_files",
-        "neutone_params",
+        "neutone_parameters",
         "wet_default_value",
         "dry_default_value",
         "output_gain_default_value",
@@ -177,7 +177,7 @@ def validate_metadata(metadata: dict) -> bool:
         mp3_b64_to_audio_sample(audio_sample_pair["out"])
 
     # We shouldn't have any problems here but as a sanity check
-    for param_metadata in metadata["neutone_params"].values():
+    for param_metadata in metadata["neutone_parameters"].values():
         try:
             default_value = float(param_metadata["default_value"])
             assert (

@@ -18,7 +18,7 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ClipperModel(nn.Module):
-    def forward(self, x: Tensor, params: Optional[Dict[str, Tensor]] = None) -> Tensor:
+    def forward(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         if params is None:
             min_val = -1.0
             max_val = 1.0
@@ -59,7 +59,7 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def is_experimental(self) -> bool:
         return False
 
-    def get_neutone_params(self) -> List[NeutoneParameter]:
+    def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter("min", "min clip threshold", default_value=1.0),
             NeutoneParameter("max", "max clip threshold", default_value=1.0),

@@ -23,7 +23,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     tags: List[str]
     citation: str
     is_experimental: bool
-    neutone_params: Dict[str, Dict[str, str]]
+    neutone_parameters: Dict[str, Dict[str, str]]
     wet_default_value: float
     dry_default_value: float
     output_gain_default_value: float
@@ -106,7 +106,9 @@ class WaveformToWaveformBase(NeutoneModel):
         For more fine grained control, override this method as required.
         """
         assert param.ndim == 1
-        agg_param = tr.mean(param, dim=0, keepdim=True)  # TODO(christhetree): prevent memory allocation
+        agg_param = tr.mean(
+            param, dim=0, keepdim=True
+        )  # TODO(christhetree): prevent memory allocation
         return agg_param
 
     def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
@@ -126,7 +128,7 @@ class WaveformToWaveformBase(NeutoneModel):
 
         remapped_params = {
             param.name: self.aggregate_param(value)
-            for param, value in zip(self.get_neutone_params(), params)
+            for param, value in zip(self.get_neutone_parameters(), params)
         }
         x = self.do_forward_pass(x, remapped_params)
 
@@ -152,11 +154,11 @@ class WaveformToWaveformBase(NeutoneModel):
 
     @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
-            self,
-            daw_sr: int,
-            daw_buffer_size: int,
-            model_sr: Optional[int] = None,
-            model_buffer_size: Optional[int] = None,
+        self,
+        daw_sr: int,
+        daw_buffer_size: int,
+        model_sr: Optional[int] = None,
+        model_buffer_size: Optional[int] = None,
     ) -> None:
         # WaveformToWaveformBase does not handle different DAW and model buffer sizes and sample rates
         self.set_buffer_size(daw_buffer_size)
@@ -226,7 +228,7 @@ class WaveformToWaveformBase(NeutoneModel):
             model_authors=core_metadata.model_authors,
             model_short_description=core_metadata.model_short_description,
             model_long_description=core_metadata.model_long_description,
-            neutone_params=core_metadata.neutone_params,
+            neutone_parameters=core_metadata.neutone_parameters,
             wet_default_value=core_metadata.wet_default_value,
             dry_default_value=core_metadata.dry_default_value,
             output_gain_default_value=core_metadata.output_gain_default_value,

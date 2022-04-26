@@ -202,3 +202,4 @@ pip-selfcheck.json
 .idea
 exports
 scratch.py
+export_model

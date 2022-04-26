@@ -67,7 +67,7 @@ class WaveformToWaveformBase(NeutoneModel):
         pass
 
     @abstractmethod
-    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor] = None) -> Tensor:
+    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         """
         SDK users can overwrite this method to implement the logic for their models.
 
@@ -146,6 +146,22 @@ class WaveformToWaveformBase(NeutoneModel):
         return 0
 
     @tr.jit.export
+    def is_resampling(self) -> bool:
+        # WaveformToWaveformBase does not handle resampling
+        return False
+
+    @tr.jit.export
+    def set_daw_sample_rate_and_buffer_size(
+            self,
+            daw_sr: int,
+            daw_buffer_size: int,
+            model_sr: Optional[int] = None,
+            model_buffer_size: Optional[int] = None,
+    ) -> None:
+        # WaveformToWaveformBase does not handle different DAW and model buffer sizes and sample rates
+        self.set_buffer_size(daw_buffer_size)
+
+    @tr.jit.export
     def set_buffer_size(self, n_samples: int) -> bool:
         """
         If the model supports dynamic buffer size resizing, add the
@@ -192,6 +208,8 @@ class WaveformToWaveformBase(NeutoneModel):
                 self.get_native_sample_rates.__name__,
                 self.get_native_buffer_sizes.__name__,
                 self.calc_min_delay_samples.__name__,
+                self.is_resampling.__name__,
+                self.set_daw_sample_rate_and_buffer_size.__name__,
                 self.set_buffer_size.__name__,
                 self.flush.__name__,
                 self.reset.__name__,

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-SDK_VERSION = "0.1.0"
+SDK_VERSION = "0.2.3"
 
 ASSETS_DIR = Path("assets").resolve()
 EXPORTS_DIR = Path("../exports").resolve()

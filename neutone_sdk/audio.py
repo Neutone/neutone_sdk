@@ -101,9 +101,6 @@ def render_audio_sample(
     if input_sample.sr != preferred_sr:
         audio = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(audio)
 
-    if params is None:
-        params = model.get_default_param_values().repeat(1, buffer_size)
-
     audio_len = audio.size(1)
     padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
     padded_audio = nn.functional.pad(audio, [0, padding_amount])

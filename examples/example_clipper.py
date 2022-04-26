@@ -82,9 +82,7 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         assert param.ndim == 1
         return param  # We want sample-level control, so no aggregation
 
-    def do_forward_pass(
-        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
-    ) -> Tensor:
+    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         x = self.model.forward(x, params)
         return x
 
@@ -107,5 +105,5 @@ if __name__ == "__main__":
     log.info(script.calc_min_delay_samples())
     log.info(script.flush())
     log.info(script.reset())
-    log.info(script.set_buffer_size(512))
+    log.info(script.set_daw_sample_rate_and_buffer_size(44100, 512))
     log.info(json.dumps(wrapper.to_metadata()._asdict(), indent=4))

@@ -204,7 +204,6 @@ class NeutoneModel(ABC, nn.Module):
     def get_neutone_params(self) -> List[NeutoneParameter]:
         return []
 
-    @tr.jit.export
     def get_default_param_values(self) -> Tensor:
         return self.default_param_values
 
@@ -220,8 +219,6 @@ class NeutoneModel(ABC, nn.Module):
     def get_preserved_attributes(self) -> List[str]:
         return [
             self.to_core_metadata.__name__,
-            self.get_default_param_values.__name__,
-            "default_param_values",  # Since this isn't always used in the forward method, TorchScript ignores it
         ]
 
     @tr.jit.export

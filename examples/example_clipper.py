@@ -98,11 +98,8 @@ if __name__ == "__main__":
         wrapper, root_dir, freeze=True, dump_samples=True, submission=True
     )
 
-    script, _ = load_neutone_model(root_dir / "model.nm")
-
     # Check model was converted correctly
-    log.info(script.calc_min_delay_samples())
-    log.info(script.flush())
+    script, _ = load_neutone_model(root_dir / "model.nm")
+    log.info(script.set_daw_sample_rate_and_buffer_size(48000, 2048))
     log.info(script.reset())
-    log.info(script.set_daw_sample_rate_and_buffer_size(44100, 512))
     log.info(json.dumps(wrapper.to_metadata()._asdict(), indent=4))

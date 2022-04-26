@@ -2,7 +2,7 @@
 
 We open source this SDK so researchers can wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer both functionality for loading the models locally in the plugin as well as contributing them to the default list of models that is available to anyone running the plugin. We hope this will both give an opportunity for researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
 
-## Private Beta
+## Public Beta
 
 The Neutone SDK is currently in private beta. The following are known shortcomings of the SDK and plugin:
 - The input and output of the models in the SDK is mono, not stereo.

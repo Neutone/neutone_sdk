@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -78,50 +79,61 @@ def save_neutone_model(
     """
     root_dir.mkdir(exist_ok=True, parents=True)
 
-    log.info("Converting model to torchscript...")
-    script = model_to_torchscript(model, freeze=freeze, optimize=optimize)
+    with tr.no_grad():
+        log.info("Converting model to torchscript...")
+        script = model_to_torchscript(model, freeze=freeze, optimize=optimize)
+        # We need to keep a copy because some models still don't implement reset
+        # properly and when rendering the samples we might create unwanted state.
+        script_copy = copy.deepcopy(script)
 
-    log.info("Extracting metadata...")
-    metadata = script.to_metadata()._asdict()
-    with open(root_dir / "metadata.json", "w") as f:
-        json.dump(metadata, f, indent=4)
+        log.info("Extracting metadata...")
+        metadata = script.to_metadata()._asdict()
+        with open(root_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=4)
 
-    log.info("Running model on audio samples...")
-    if audio_sample_pairs is None:
-        input_samples = get_default_audio_samples()
-        audio_sample_pairs = []
-        for input_sample in input_samples:
-            rendered_sample = render_audio_sample(model, input_sample)
-            audio_sample_pairs.append(AudioSamplePair(input_sample, rendered_sample))
+        log.info("Running model on audio samples...")
+        if audio_sample_pairs is None:
+            input_samples = get_default_audio_samples()
+            audio_sample_pairs = []
+            for input_sample in input_samples:
+                rendered_sample = render_audio_sample(model, input_sample)
+                audio_sample_pairs.append(
+                    AudioSamplePair(input_sample, rendered_sample)
+                )
 
-    metadata["sample_sound_files"] = [
-        pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
-    ]
-    log.info("Validating metadata...")
-    validate_metadata(metadata)
-    extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
+        metadata["sample_sound_files"] = [
+            pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
+        ]
+        log.info("Validating metadata...")
+        validate_metadata(metadata)
+        extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
 
-    log.info(f"Saving model to {root_dir/'model.nm'}...")
-    tr.jit.save(script, root_dir / "model.nm", _extra_files=extra_files)
+        # Save the copied model with the extra files
+        log.info(f"Saving model to {root_dir/'model.nm'}...")
+        tr.jit.save(script_copy, root_dir / "model.nm", _extra_files=extra_files)
 
-    if dump_samples:
-        dump_samples_from_metadata(metadata, root_dir)
+        if dump_samples:
+            dump_samples_from_metadata(metadata, root_dir)
 
-    if submission:  # Do extra checks
-        log.info("Running submission checks...")
-        log.info("Loading saved model and metadata...")
-        loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
-        log.info("Assert metadata was saved correctly...")
-        assert loaded_metadata == metadata
-        del loaded_metadata["sample_sound_files"]
-        assert loaded_metadata == loaded_model.to_metadata()._asdict()
+        if submission:  # Do extra checks
+            log.info("Running submission checks...")
+            log.info("Loading saved model and metadata...")
+            loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+            log.info("Assert metadata was saved correctly...")
+            assert loaded_metadata == metadata
+            del loaded_metadata["sample_sound_files"]
+            assert loaded_metadata == loaded_model.to_metadata()._asdict()
 
-        log.info("Assert loaded model output matches output of model before saving...")
-        input_samples = audio_sample_pairs[0].input
-        assert tr.allclose(
-            render_audio_sample(model, input_samples).audio,
-            render_audio_sample(loaded_model, input_samples).audio,
-        )
+            log.info(
+                "Assert loaded model output matches output of model before saving..."
+            )
+            input_samples = audio_sample_pairs[0].input
+            tr.manual_seed(42)
+            loaded_model_render = render_audio_sample(loaded_model, input_samples).audio
+            tr.manual_seed(42)
+            script_model_render = render_audio_sample(script_copy, input_samples).audio
+
+            assert tr.allclose(script_model_render, loaded_model_render)
 
 
 def load_neutone_model(path: str) -> Tuple[ScriptModule, Dict]:

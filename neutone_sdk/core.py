@@ -70,8 +70,9 @@ class NeutoneModel(ABC, nn.Module):
             for idx, neutone_param in enumerate(neutone_params)
         }
         default_param_values = tr.tensor(
-            [neutone_param.default_value for neutone_param in neutone_params]).unsqueeze(-1)
-        self.register_buffer('default_param_values', default_param_values)
+            [neutone_param.default_value for neutone_param in neutone_params]
+        ).unsqueeze(-1)
+        self.register_buffer("default_param_values", default_param_values)
 
     @abstractmethod
     def get_model_name(self) -> str:
@@ -219,6 +220,7 @@ class NeutoneModel(ABC, nn.Module):
     def get_preserved_attributes(self) -> List[str]:
         return [
             self.to_core_metadata.__name__,
+            "model",
         ]
 
     @tr.jit.export

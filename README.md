@@ -4,7 +4,7 @@ We open source this SDK so researchers can wrap their own audio models and run t
 
 ## Public Beta
 
-The Neutone SDK is currently in private beta. The following are known shortcomings of the SDK and plugin:
+The Neutone SDK is currently in public beta. The following are known shortcomings of the SDK and plugin:
 - The input and output of the models in the SDK is mono, not stereo.
 - We recommend setting the DAW settings to 44100 or 48000 sampling rate, 2048 buffer size
 - Freezing models on save can cause instabilities
@@ -198,8 +198,11 @@ To submit a model, please open an issue on the GitHub repository. We currently n
 We welcome any contributions to the SDK. Please add types wherever possible and use the `black` formatter for readability.
 
 The current roadmap is:
-- Finish the implementation of on-the-fly resampling and queueing
+- Finish our implementation for any combination of mono / stereo input and output
+- Finish our implementation of intelligent resampling and queueing for common sample rate and buffer size combinations
 - Additional testing and benchmarking of models during or after exporting
+- General bug fixing and stability improvements
+- Adding our own experimental neural DSP models
 
 <a name="credits"/>
 

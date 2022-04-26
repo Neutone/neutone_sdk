@@ -224,6 +224,7 @@ class NeutoneModel(ABC, nn.Module):
         return [
             self.to_core_metadata.__name__,
             "model",
+            "default_param_values",
         ]
 
     @tr.jit.export

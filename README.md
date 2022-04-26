@@ -4,7 +4,7 @@ We open source this SDK so researchers can wrap their own audio models and run t
 
 ## Public Beta
 
-The Neutone SDK is currently in private beta. The following are known shortcomings of the SDK and plugin:
+The Neutone SDK is currently in public beta. The following are known shortcomings of the SDK and plugin:
 - The input and output of the models in the SDK is mono, not stereo.
 - We recommend setting the DAW settings to 44100 or 48000 sampling rate, 2048 buffer size
 - Freezing models on save can cause instabilities

@@ -1,81 +1,100 @@
+import json
+import logging
+import os
+from argparse import ArgumentParser
+from pathlib import Path
+from typing import Optional, Dict, List
+
 import torch
 import torch.nn as nn
-from auditioner_sdk import WaveformToWaveformBase
+from torch import Tensor
+
+from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
+from neutone_sdk.utils import load_neutone_model, save_neutone_model
+
+logging.basicConfig()
+log = logging.getLogger(__name__)
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-class RaveModelWrapper(WaveformToWaveformBase):
-    def __init__(self, module: nn.Module):
-        super().__init__(module)
+class RAVEModelWrapper(WaveformToWaveformBase):
+    def get_model_name(self) -> str:
+        return "RAVE.jvoice"
 
-    def do_forward_pass(self, x: torch.Tensor) -> torch.Tensor:
+    def get_model_authors(self) -> List[str]:
+        return ["Nao Tokui"]
 
-        # do any preprocessing here!
-        # expect x to be a waveform tensor with shape (n_channels, n_samples)
-        output = self.model(x.unsqueeze(0))
+    def get_model_short_description(self) -> str:
+        return "RAVE model trained on Japanese female voice"
 
-        # do any postprocessing here!
-        # the return value should be a multichannel waveform tensor with shape (n_channels, n_samples)
+    def get_model_long_description(self) -> str:
+        return "RAVE timbre transfer model trained on Japanese female voice"
 
-        return output.squeeze(1)
+    def get_technical_description(self) -> str:
+        return "RAVE model proposed by Caillon Antoine et al."
 
+    def get_technical_links(self) -> Dict[str, str]:
+        return {
+            "Paper": "https://arxiv.org/abs/2111.05011",
+            "Code": "https://github.com/acids-ircam/RAVE",
+        }
 
-metadata = {
-    "sample_rate": 48000,
-    "domain_tags": ["music", "speech", "environmental"],
-    "short_description": "RAVE model test",
-    "long_description": "This description can be a max of 280 characters aaaaaaaaaaaaaaaaaaaa.",
-    "tags": ["RAVE"],
-    "labels": ["RAVE"],
-    "effect_type": "waveform-to-waveform",
-    "multichannel": False,
-}
+    def get_tags(self) -> List[str]:
+        return ["timbre transfer", "voice"]
 
-from pathlib import Path
-from auditioner_sdk.utils import (
-    save_model,
-    validate_metadata,
-    get_example_inputs,
-    test_run,
-)
+    def get_model_version(self) -> str:
+        return "1.0.0"
+
+    def is_experimental(self) -> bool:
+        return False
+
+    def get_parameters(self) -> List[NeutoneParameter]:
+        return []
+
+    def is_input_mono(self) -> bool:
+        return True
+
+    def is_output_mono(self) -> bool:
+        return True
+
+    def get_native_sample_rates(self) -> List[int]:
+        return []
+
+    def get_native_buffer_sizes(self) -> List[int]:
+        return [2048]
+
+    def get_citation(self) -> str:
+        return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
+
+    @torch.no_grad()
+    def do_forward_pass(
+        self, x: Tensor, params: Optional[Dict[str, Tensor]] = None
+    ) -> Tensor:
+        # Currently VST input-output is mono, which matches RAVE.
+        if x.size(0) == 2:
+            x = x.mean(dim=0, keepdim=True)
+        x = self.model(x.unsqueeze(0)).squeeze(1)
+        return x
 
 
 if __name__ == "__main__":
-
-    torch.set_grad_enabled(False)
-
-    # create a root dir for our model
-    root = Path("exports/rave-speech-model")
-    root.mkdir(exist_ok=True, parents=True)
-
-    # get our model
-
-    model = torch.jit.load("models/speech_realtime.ts")
+    parser = ArgumentParser()
+    parser.add_argument("-i", "--input", default="./models/rave/rave_jsut_cached.ts")
+    parser.add_argument("-o", "--output", default="./exports/rave_jsut.pt")
+    args = parser.parse_args()
+    root_dir = Path(args.output)
 
     # wrap it
-    wrapper = RaveModelWrapper(model)
+    model = torch.jit.load(args.input)
+    wrapper = RAVEModelWrapper(model)
+    save_neutone_model(
+        wrapper, root_dir, freeze=True, dump_samples=True, submission=True
+    )
 
-    # serialize it using torch.jit.script, torch.jit.trace,
-    # or a combination of both.
-
-    # option 1: torch.jit.script
-    # using torch.jit.script is preferred for most cases,
-    # but may require changing a lot of source code
-    serialized_model = torch.jit.script(wrapper)
-
-    # option 2: torch.jit.trace
-    # using torch.jit.trace is typically easier, but you
-    # need to be extra careful that your serialized model behaves
-    # properly after tracing
-    # example_inputs = get_example_inputs()
-    # serialized_model = torch.jit.trace(wrapper, example_inputs[0],
-    #                                     check_inputs=example_inputs)
-
-    # take your model for a test run!
-    test_run(serialized_model)
-
-    # check that we created our metadata correctly
-    success, msg = validate_metadata(metadata)
-    assert success
-
-    # save!
-    save_model(serialized_model, metadata, root)
+    # Check model was converted correctly
+    script, _ = load_neutone_model(root_dir / "model.nm")
+    log.info(script.calc_min_delay_samples())
+    log.info(script.flush())
+    log.info(script.reset())
+    log.info(script.set_buffer_size(512))
+    log.info(json.dumps(wrapper.to_metadata()._asdict(), indent=4))

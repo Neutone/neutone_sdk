@@ -46,7 +46,7 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return "Clips the input audio between -1 and 1."
 
     def get_technical_links(self) -> Dict[str, str]:
-        return {"Code": "https://github.com/QosmoInc/neutone_sdk"}
+        return {"Code": "https://github.com/QosmoInc/neutone_sdk/blob/main/examples/example_clipper.py"}
 
     def get_tags(self) -> List[str]:
         return ["clipper"]
@@ -55,7 +55,7 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return "1.0.0"
 
     def is_experimental(self) -> bool:
-        return True
+        return False
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [

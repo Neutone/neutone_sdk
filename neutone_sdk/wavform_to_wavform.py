@@ -26,6 +26,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     neutone_parameters: Dict[str, Dict[str, str]]
     wet_default_value: float
     dry_default_value: float
+    input_gain_default_value: float
     output_gain_default_value: float
     is_input_mono: bool
     is_output_mono: bool
@@ -231,6 +232,7 @@ class WaveformToWaveformBase(NeutoneModel):
             neutone_parameters=core_metadata.neutone_parameters,
             wet_default_value=core_metadata.wet_default_value,
             dry_default_value=core_metadata.dry_default_value,
+            input_gain_default_value=core_metadata.input_gain_default_value,
             output_gain_default_value=core_metadata.output_gain_default_value,
             technical_description=core_metadata.technical_description,
             technical_links=core_metadata.technical_links,

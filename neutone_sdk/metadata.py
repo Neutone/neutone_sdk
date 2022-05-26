@@ -81,6 +81,11 @@ SCHEMA = {
             "minimum": 0.0,
             "maximum": 1.0,
         },
+        "input_gain_default_value": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+        },
         "output_gain_default_value": {
             "type": "number",
             "minimum": 0.0,
@@ -144,6 +149,7 @@ SCHEMA = {
         "neutone_parameters",
         "wet_default_value",
         "dry_default_value",
+        "input_gain_default_value",
         "output_gain_default_value",
         "is_input_mono",
         "is_output_mono",

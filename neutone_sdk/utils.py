@@ -135,6 +135,26 @@ def save_neutone_model(
 
             assert tr.allclose(script_model_render, loaded_model_render)
 
+            log.info("Your model has been exported successfully!")
+            log.info(
+                "You can now test it using the plugin available at https://neutone.space"
+            )
+            log.info("Note that in beta we only support 48kHz SR / 2048 buffer size")
+            log.info(
+                """Additionally, the parameter helper text is not displayed
+                    correctly when using the local load functionality"""
+            )
+            log.info(
+                """If you are happy with how your model sounds and would
+            like to contribute it to the default list of models, please
+            consider submitting it to our GitHub. Upload the resulting model.nm
+            somewhere and open an issue on GitHub using the Request add model
+            template available at the following link:"""
+            )
+            log.info(
+                "https://github.com/QosmoInc/neutone-sdk/issues/new?assignees=bogdanteleaga%2C+christhetree&labels=enhancement&template=request-add-model.md&title=%5BMODEL%5D+%3CNAME%3E"
+            )
+
 
 def load_neutone_model(path: str) -> Tuple[ScriptModule, Dict]:
     extra_files = {

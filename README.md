@@ -180,7 +180,7 @@ class OverdriveModelWrapper(WaveformToWaveformBase):
 
 Check out the documentation of the methods inside [core.py](neutone_sdk/core.py), as well as the random overdrive model on the [website](https://neutone.space/models/) and in the plugin to understand where each field will be displayed.
 
-To submit a model, please open an issue on the GitHub repository. We currently need the following:
+To submit a model, please [open an issue on the GitHub repository](https://github.com/QosmoInc/neutone_sdk/issues/new?assignees=bogdanteleaga%2C+christhetree&labels=enhancement&template=request-add-model.md&title=%5BMODEL%5D+%3CNAME%3E). We currently need the following:
 - A short description of what the model does and how it can contribute to the community
 - A link to the `model.nm` file outputted by the `save_neutone_model` helper function
 

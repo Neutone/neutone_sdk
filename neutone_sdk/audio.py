@@ -74,11 +74,16 @@ def get_default_audio_samples() -> List[AudioSample]:
     log.info(
         "Using default sample... Please consider using your own audio samples by overriding the get_audio_samples method"
     )
-    wave, sr = torchaudio.load(
-        io.BytesIO(pkgutil.get_data(__package__, "assets/default_samples/sample_1.mp3")),
+    wave_inst, sr_inst = torchaudio.load(
+        io.BytesIO(pkgutil.get_data(__package__, "assets/default_samples/sample_inst.mp3")),
         format="mp3",
     )
-    return [AudioSample(wave, sr)]
+    wave_music, sr_music = torchaudio.load(
+        io.BytesIO(pkgutil.get_data(__package__, "assets/default_samples/sample_music.mp3")),
+        format="mp3",
+    )
+
+    return [AudioSample(wave_inst, sr_inst), AudioSample(wave_music, sr_music)]
 
 
 def render_audio_sample(

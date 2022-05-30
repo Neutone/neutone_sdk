@@ -152,7 +152,7 @@ def save_neutone_model(
             template available at the following link:"""
             )
             log.info(
-                "https://github.com/QosmoInc/neutone-sdk/issues/new?assignees=bogdanteleaga%2C+christhetree&labels=enhancement&template=request-add-model.md&title=%5BMODEL%5D+%3CNAME%3E"
+                "https://github.com/QosmoInc/neutone_sdk/issues/new?assignees=bogdanteleaga%2C+christhetree&labels=enhancement&template=request-add-model.md&title=%5BMODEL%5D+%3CNAME%3E"
             )
 
 

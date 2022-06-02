@@ -115,10 +115,16 @@ def save_neutone_model(
         if dump_samples:
             dump_samples_from_metadata(metadata, root_dir)
 
+        log.info("Loading saved model and metadata...")
+        loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+        log.info("Testing methods on saved model...")
+        loaded_model.set_daw_sample_rate_and_buffer_size(48000, 2048)
+        loaded_model.flush()
+        loaded_model.reset()
+        log.info(f"Delay reported to the DAW: {loaded_model.calc_min_delay_samples()}")
+
         if submission:  # Do extra checks
             log.info("Running submission checks...")
-            log.info("Loading saved model and metadata...")
-            loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
             log.info("Assert metadata was saved correctly...")
             assert loaded_metadata == metadata
             del loaded_metadata["sample_sound_files"]

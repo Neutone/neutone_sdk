@@ -132,11 +132,3 @@ if __name__ == "__main__":
     save_neutone_model(
         wrapper, root_dir, freeze=True, dump_samples=True, submission=True, audio_sample_pairs=soundpairs
     )
-
-    # Check model was converted correctly
-    script, _ = load_neutone_model(root_dir / "model.nm")
-    log.info(script.calc_min_delay_samples())
-    log.info(script.flush())
-    log.info(script.reset())
-    log.info(script.set_buffer_size(512))
-    log.info(json.dumps(wrapper.to_metadata()._asdict(), indent=4))

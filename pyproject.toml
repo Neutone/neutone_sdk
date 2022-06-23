@@ -1,16 +1,16 @@
 [tool.poetry]
 name = "neutone_sdk"
-version = "0.1.0"
+version = "0.2.3"
 description = "SDK for wrapping deep learning models for deployment in Neutone"
 readme = "README.md"
 authors = ["Qosmo <info@qosmo.jp>"]
-homepage = "https://github.com/QosmoInc/neutone-sdk.git"
+homepage = "https://github.com/QosmoInc/neutone_sdk.git"
 license = "MIT"
 packages = [{include = "neutone_sdk"}]
 
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.7"
 numpy = "^1.21.6"
 torch = "1.11.0"
 torchaudio = "0.11.0"

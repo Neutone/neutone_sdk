@@ -65,14 +65,23 @@ def save_neutone_model(
 
     Args:
         model: Your Neutone model. Should derive from neutone_sdk.WaveformToWaveformBase.
-        root_dir: Directory to dump models
-        dump_samples: If true, will additionally dump audio samples from the model for listening.
+        root_dir: Directory to dump the model and auxiliary files.
+        freeze: If true, jit.freeze will be applied to the model.
+        optimize: Bool If true, jit.optimize_for_inference will be applied to the model.
+        dump_samples: If true, will additionally dump audio samples from the .nm file for listening.
+        submission: If true, will run additional checks to ensure the model
+                saved on disk behaves identically to the one loaded in memory.
+        audio_sample_pairs: Can be used to override the default samples bundled in the
+                SDK to be added to the model. Will affect what is displayed on the
+                website once the model is submitted.
+        max_n_samples: Can be used to override the maximum number of samples
+                used (default of 3) for exceptional cases.
 
     Returns:
       Will create the following files:
       ```
         root_dir/
-        root_dir/model.pt
+        root_dir/model.nm
         root_dir/metadata.json
         root_dir/samples/*
       ```
@@ -153,7 +162,7 @@ def save_neutone_model(
             log.info(
                 """If you are happy with how your model sounds and would
             like to contribute it to the default list of models, please
-            consider submitting it to our GitHub. Upload the resulting model.nm
+            consider submitting it to our GitHub. Upload only the resulting model.nm
             somewhere and open an issue on GitHub using the Request add model
             template available at the following link:"""
             )

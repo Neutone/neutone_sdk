@@ -1,7 +1,8 @@
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import NamedTuple, Dict, List, Final
+from typing import NamedTuple, Dict, List
+from torch.jit import Final
 
 import torch as tr
 from torch import nn, Tensor

@@ -172,10 +172,10 @@ def validate_metadata(metadata: dict) -> bool:
     for link in metadata["technical_links"].values():
         try:
             code = requests.head(link).status_code
+            if code != 200:
+                log.error(f"Cannot access link {link}")
         except requests.exceptions.ConnectionError:
             log.error(f"Cannot access link {link}")
-            return False
-        assert code == 200, f"Cannot access link {link}"
 
     # Check we can extract mp3s from the samples
     for audio_sample_pair in metadata["sample_sound_files"]:

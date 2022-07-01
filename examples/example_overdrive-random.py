@@ -1,6 +1,5 @@
 # This code is based on the following repository written by Christian J. Steinmetz
 # https://github.com/csteinmetz1/micro-tcn
-import json
 import logging
 import os
 from argparse import ArgumentParser
@@ -13,7 +12,7 @@ from torch import Tensor
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.tcn_1d import FiLM
-from neutone_sdk.utils import load_neutone_model, save_neutone_model
+from neutone_sdk.utils import save_neutone_model
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -185,15 +184,19 @@ class OverdriveModelWrapper(WaveformToWaveformBase):
                 NeutoneParameter("P1", "Feature modulation 1", 0.0),
                 NeutoneParameter("P2", "Feature modulation 2", 0.0)]
 
+    @torch.jit.export
     def is_input_mono(self) -> bool:
         return False
 
+    @torch.jit.export
     def is_output_mono(self) -> bool:
         return False
 
+    @torch.jit.export
     def get_native_sample_rates(self) -> List[int]:
         return []  # Supports all sample rates
 
+    @torch.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 

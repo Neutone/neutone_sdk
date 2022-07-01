@@ -39,7 +39,7 @@ class NeutoneModel(ABC, nn.Module):
     SDK_VERSION: Final[str] = constants.SDK_VERSION
 
     # TODO(christhetree): check all preserved_attrs have been exported
-    def __init__(self, model: nn.Module) -> None:
+    def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         """
         Creates an Neutone model, wrapping a child model (that does the real
         work).
@@ -47,6 +47,7 @@ class NeutoneModel(ABC, nn.Module):
         super().__init__()
         self.MAX_N_PARAMS = NeutoneModel.MAX_N_PARAMS
         self.SDK_VERSION = NeutoneModel.SDK_VERSION
+        self.use_debug_mode = use_debug_mode
 
         assert len(self.get_neutone_parameters()) <= self.MAX_N_PARAMS
         # Ensure parameter names are unique
@@ -219,17 +220,27 @@ class NeutoneModel(ABC, nn.Module):
     def get_dry_default_value(self) -> float:
         return 0.0
 
-    def get_output_gain_default_value(self) -> float:
+    def get_input_gain_default_value(self) -> float:
+        """[0.0, 1.0] here maps to [-30.0db, +30.0db]"""
         return 0.5
 
-    def get_input_gain_default_value(self) -> float:
-        return 1.0
+    def get_output_gain_default_value(self) -> float:
+        """[0.0, 1.0] here maps to [-30.0db, +30.0db]"""
+        return 0.5
 
-    def get_preserved_attributes(self) -> List[str]:
+    def prepare_for_inference(self) -> None:
+        """Prepare a model for inference and to be converted to torchscript."""
+        self.use_debug_mode = False
+        self.model.eval()
+        self.eval()
+
+    @tr.jit.export
+    def get_core_preserved_attributes(self) -> List[str]:
         return [
-            self.to_core_metadata.__name__,
+            "to_core_metadata",
             "model",
             "default_param_values",
+            "get_core_preserved_attributes",
         ]
 
     @tr.jit.export

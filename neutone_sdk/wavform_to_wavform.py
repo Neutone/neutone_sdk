@@ -106,7 +106,8 @@ class WaveformToWaveformBase(NeutoneModel):
 
         For more fine grained control, override this method as required.
         """
-        assert param.ndim == 1
+        if self.use_debug_mode:
+            assert param.ndim == 1
         agg_param = tr.mean(
             param, dim=0, keepdim=True
         )  # TODO(christhetree): prevent memory allocation
@@ -124,8 +125,9 @@ class WaveformToWaveformBase(NeutoneModel):
             # TODO(christhetree): try expand instead of repeat to avoid memory allocation
             params = self.get_default_param_values().repeat(1, x.shape[1])
 
-        assert params.shape == (self.MAX_N_PARAMS, x.shape[1])
-        validate_waveform(x)
+        if self.use_debug_mode:
+            assert params.shape == (self.MAX_N_PARAMS, x.shape[1])
+            validate_waveform(x, self.is_input_mono())
 
         remapped_params = {
             param.name: self.aggregate_param(value)
@@ -133,7 +135,9 @@ class WaveformToWaveformBase(NeutoneModel):
         }
         x = self.do_forward_pass(x, remapped_params)
 
-        validate_waveform(x)
+        if self.use_debug_mode:
+            validate_waveform(x, self.is_output_mono())
+
         return x
 
     @tr.jit.export
@@ -150,6 +154,7 @@ class WaveformToWaveformBase(NeutoneModel):
 
     @tr.jit.export
     def is_resampling(self) -> bool:
+        # TODO(cm): this will be removed in the next major release
         # WaveformToWaveformBase does not handle resampling
         return False
 
@@ -161,6 +166,7 @@ class WaveformToWaveformBase(NeutoneModel):
         model_sr: Optional[int] = None,
         model_buffer_size: Optional[int] = None,
     ) -> None:
+        # TODO(cm): this will be removed in the next major release
         # WaveformToWaveformBase does not handle different DAW and model buffer sizes and sample rates
         self.set_buffer_size(daw_buffer_size)
 
@@ -180,19 +186,6 @@ class WaveformToWaveformBase(NeutoneModel):
         return False
 
     @tr.jit.export
-    def flush(self) -> Optional[Tensor]:
-        """
-        If the model supports flushing (e.g. due to a delay from a lookahead
-        buffer or cross-fading etc.) add the functionality here.
-
-        Returns:
-            Optional[Tensor]: None if not supported, otherwise a right side zero
-                              padded tensor of length buffer_size with the
-                              flushed samples at the beginning.
-        """
-        return None
-
-    @tr.jit.export
     def reset(self) -> bool:
         """
         If the model supports resetting (e.g. wiping internal state), add the
@@ -204,25 +197,30 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         return False
 
+    @tr.jit.export
     def get_preserved_attributes(self) -> List[str]:
-        preserved_attrs = super().get_preserved_attributes()
+        # This avoids using inheritance which torchscript does not support
+        preserved_attrs = self.get_core_preserved_attributes()
         preserved_attrs.extend(
             [
-                self.get_native_sample_rates.__name__,
-                self.get_native_buffer_sizes.__name__,
-                self.calc_min_delay_samples.__name__,
-                self.is_resampling.__name__,
-                self.set_daw_sample_rate_and_buffer_size.__name__,
-                self.set_buffer_size.__name__,
-                self.flush.__name__,
-                self.reset.__name__,
-                self.to_metadata.__name__,
+                "is_input_mono",
+                "is_output_mono",
+                "get_native_sample_rates",
+                "get_native_buffer_sizes",
+                "calc_min_delay_samples",
+                "is_resampling",
+                "set_daw_sample_rate_and_buffer_size",
+                "set_buffer_size""",
+                "reset",
+                "get_preserved_attributes",
+                "to_metadata",
             ]
         )
         return preserved_attrs
 
     @tr.jit.export
     def to_metadata(self) -> WaveformToWaveformMetadata:
+        # This avoids using inheritance which torchscript does not support
         core_metadata = self.to_core_metadata()
         return WaveformToWaveformMetadata(
             model_name=core_metadata.model_name,

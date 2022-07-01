@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from argparse import ArgumentParser
@@ -6,17 +5,16 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
+import torchaudio
 from torch import Tensor
 
-import torchaudio
+from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
     render_audio_sample,
 )
-
-from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
-from neutone_sdk.utils import load_neutone_model, save_neutone_model
+from neutone_sdk.utils import save_neutone_model
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -64,17 +62,21 @@ class RAVEModelWrapper(WaveformToWaveformBase):
             NeutoneParameter(name='Z edit index', description='Index of latent dimension to edit', default_value=0.0),
             NeutoneParameter(name='Z scale', description='Scale of latent variable', default_value=0.5),
             NeutoneParameter(name='Z offset', description='Offset of latent variable', default_value=0.5),
-            ]
+        ]
 
+    @torch.jit.export
     def is_input_mono(self) -> bool:
         return True
 
+    @torch.jit.export
     def is_output_mono(self) -> bool:
         return True
 
+    @torch.jit.export
     def get_native_sample_rates(self) -> List[int]:
         return [48000]
 
+    @torch.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
 
@@ -83,7 +85,7 @@ class RAVEModelWrapper(WaveformToWaveformBase):
 
     @torch.no_grad()
     def do_forward_pass(
-        self, x: Tensor, params: Dict[str, Tensor]
+            self, x: Tensor, params: Dict[str, Tensor]
     ) -> Tensor:
         # Currently VST input-output is mono, which matches RAVE.
         if x.size(0) == 2:
@@ -95,16 +97,16 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         z = torch.randn_like(z_std) * noise_amp + z_mean
         # add offset / scale
         idx_z = int(torch.clamp(params['Z edit index'], min=0.0, max=0.99) * self.model.cropped_latent_size)
-        z_scale = params['Z scale']*2 # 0~1 -> 0~2
-        z_offset = params['Z offset']*2-1 # 0~1 -> -1~1
+        z_scale = params['Z scale'] * 2  # 0~1 -> 0~2
+        z_offset = params['Z offset'] * 2 - 1  # 0~1 -> -1~1
         z[:, idx_z] = z[:, idx_z] * z_scale + z_offset
         out = self.model.decode(z)
         out = out.squeeze(1)
-        
+
         ## Use this in case the model is wrapped in an old version and
         ## doesn't have encode_amortized
         # out = self.model.decode(self.model.encode(x.unsqueeze(1))).squeeze(1)
-        return out # (n_channels=1, sample_size)
+        return out  # (n_channels=1, sample_size)
 
 
 if __name__ == "__main__":
@@ -112,7 +114,8 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", default="./models/rave/rave_cached.ts", help='exported RAVE torchscript file')
     parser.add_argument("-o", "--output", default="ravemodel", help='model output name')
     parser.add_argument("-f", "--folder", default="./exports", help='output folder')
-    parser.add_argument("-s", "--sounds", nargs='*', type=str, default=None, help='directory of sounds to use as example input.')
+    parser.add_argument(
+        "-s", "--sounds", nargs='*', type=str, default=None, help='directory of sounds to use as example input.')
     args = parser.parse_args()
     root_dir = Path(args.folder) / args.output
 

@@ -5,11 +5,12 @@ import math
 import io
 import pkgutil
 import tempfile
-from typing import Optional, List
+from typing import Optional, List, Union
 
 import torch as tr
 from torch import nn, Tensor
 import torchaudio
+from torch.jit import ScriptModule
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -21,10 +22,13 @@ class AudioSample:
     sr: int
 
     def __post_init__(self):
-        assert len(self.audio.shape) == 2
+        assert self.audio.ndim == 2
         assert (
             self.audio.size(0) == 1 or self.audio.size(0) == 2
         ), "Audio sample audio should be 1 or 2 channels, channels first"
+
+    def is_mono(self) -> bool:
+        return self.audio.size(0) == 1
 
 
 @dataclass
@@ -87,11 +91,12 @@ def get_default_audio_samples() -> List[AudioSample]:
 
 
 def render_audio_sample(
-    model: "WaveformToWaveformBase",
+    model: Union["WaveformToWaveformBase", ScriptModule],
     input_sample: AudioSample,
     params: Optional[Tensor] = None,
     output_sr: int = 44100,
 ) -> AudioSample:
+    model.use_debug_mode = True  # Turn on debug mode to catch common mistakes when rendering sample audio
     if len(model.get_native_sample_rates()) > 0:
         preferred_sr = model.get_native_sample_rates()[0]
     else:
@@ -106,6 +111,11 @@ def render_audio_sample(
     if input_sample.sr != preferred_sr:
         audio = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(audio)
 
+    if model.is_input_mono() and not input_sample.is_mono():
+        audio = tr.mean(audio, dim=0, keepdim=True)
+    elif not model.is_input_mono() and input_sample.is_mono():
+        audio = audio.repeat(2, 1)
+
     audio_len = audio.size(1)
     padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
     padded_audio = nn.functional.pad(audio, [0, padding_amount])
@@ -117,4 +127,11 @@ def render_audio_sample(
     )[:, :audio_len]
     if preferred_sr != output_sr:
         audio_out = torchaudio.transforms.Resample(preferred_sr, output_sr)(audio_out)
+
+    # Make the output audio consistent with the input audio
+    if model.is_output_mono() and not input_sample.is_mono():
+        audio_out = audio_out.repeat(2, 1)
+    elif not model.is_output_mono() and input_sample.is_mono():
+        audio_out = tr.mean(audio_out, dim=0, keepdim=True)
+
     return AudioSample(audio_out, output_sr)

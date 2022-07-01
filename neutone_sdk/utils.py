@@ -36,17 +36,19 @@ def dump_samples_from_metadata(metadata: Dict, root_dir: Path) -> None:
 
 
 def model_to_torchscript(
-    model: "NeutoneModel",
+    model: "WaveformToWaveformBase",
     freeze: bool = False,
     optimize: bool = False,
 ) -> ScriptModule:
-    model.eval()
+    model.prepare_for_inference()
     script = tr.jit.script(model)
+    check_for_preserved_attributes(script, script.get_preserved_attributes())
     if freeze:
-        script = tr.jit.freeze(script, preserved_attrs=model.get_preserved_attributes())
+        script = tr.jit.freeze(script, preserved_attrs=script.get_preserved_attributes())
     if optimize:
         log.warning(f"Optimizing may break the model.")
         script = tr.jit.optimize_for_inference(script)
+    check_for_preserved_attributes(script, script.get_preserved_attributes())
     return script
 
 
@@ -86,11 +88,16 @@ def save_neutone_model(
         root_dir/samples/*
       ```
     """
+    if not model.use_debug_mode:
+        log.warning(f"Debug mode has already been disabled for the model, please always test your model with debug "
+                    f"mode enabled.")
+
     root_dir.mkdir(exist_ok=True, parents=True)
 
     with tr.no_grad():
         log.info("Converting model to torchscript...")
         script = model_to_torchscript(model, freeze=freeze, optimize=optimize)
+
         # We need to keep a copy because some models still don't implement reset
         # properly and when rendering the samples we might create unwanted state.
         script_copy = copy.deepcopy(script)
@@ -126,9 +133,9 @@ def save_neutone_model(
 
         log.info("Loading saved model and metadata...")
         loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+        check_for_preserved_attributes(loaded_model, loaded_model.get_preserved_attributes())
         log.info("Testing methods on saved model...")
         loaded_model.set_daw_sample_rate_and_buffer_size(48000, 2048)
-        loaded_model.flush()
         loaded_model.reset()
         log.info(f"Delay reported to the DAW: {loaded_model.calc_min_delay_samples()}")
 
@@ -216,10 +223,20 @@ def test_run(model: "NeutoneModel", multichannel: bool = False) -> None:
         # plt.show()
 
 
-def validate_waveform(x: Tensor) -> None:
-    assert x.ndim == 2, "input must have two dimensions (channels, samples)"
+def validate_waveform(x: Tensor, is_mono: bool) -> None:
+    assert x.ndim == 2, "Audio tensor must have two dimensions: (channels, samples)"
+    if is_mono:
+        assert x.shape[0] == 1, "Audio tensor should be mono and only have one channel"
+    else:
+        assert x.shape[0] == 2, "Audio tensor should be stereo and only have two channels"
     assert x.shape[-1] > x.shape[0], (
         f"The number of channels {x.shape[-2]} exceeds the number of samples "
-        f"{x.shape[-1]} in your INPUT waveform. There might be something "
-        f"wrong with your model. "
+        f"{x.shape[-1]} in the audio tensor. There might be something "
+        f"wrong with the model."
     )
+
+
+def check_for_preserved_attributes(script: ScriptModule, preserved_attrs: List[str]) -> None:
+    for attr in preserved_attrs:
+        assert hasattr(script, attr), f"{attr}() method is missing from the TorchScript model. Did you overwrite " \
+                                        f"it and forget to add the @torch.jit.export decorator?"

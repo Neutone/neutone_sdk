@@ -1,16 +1,15 @@
-import json
 import logging
 import os
 import pathlib
 from argparse import ArgumentParser
-from typing import Optional, Dict, List
+from typing import Dict, List
 
 import torch as tr
 import torch.nn as nn
 from torch import Tensor
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
-from neutone_sdk.utils import load_neutone_model, save_neutone_model
+from neutone_sdk.utils import save_neutone_model
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -64,15 +63,19 @@ class ClipperModelWrapper(WaveformToWaveformBase):
             NeutoneParameter("gain", "scale clip threshold", default_value=1.0),
         ]
 
+    @tr.jit.export
     def is_input_mono(self) -> bool:
         return False
 
+    @tr.jit.export
     def is_output_mono(self) -> bool:
         return False
 
+    @tr.jit.export
     def get_native_sample_rates(self) -> List[int]:
         return []  # Supports all sample rates
 
+    @tr.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 

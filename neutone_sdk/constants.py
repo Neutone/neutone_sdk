@@ -8,3 +8,4 @@ EXPORTS_DIR = Path("../exports").resolve()
 DEFAULT_SAMPLES_DIR = ASSETS_DIR / "default_samples"
 
 MAX_N_AUDIO_SAMPLES = 3
+MAX_N_PARAMS = 4

@@ -88,6 +88,8 @@ def save_neutone_model(
         root_dir/samples/*
       ```
     """
+    random.seed(0)
+    tr.manual_seed(0)
     if not model.use_debug_mode:
         log.warning(f"Debug mode has already been disabled for the model, please always test your model with debug "
                     f"mode enabled.")

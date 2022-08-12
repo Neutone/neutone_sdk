@@ -35,9 +35,6 @@ class CoreMetadata(NamedTuple):
 
 
 class NeutoneModel(ABC, nn.Module):
-    MAX_N_PARAMS: Final[int] = 4
-    SDK_VERSION: Final[str] = constants.SDK_VERSION
-
     # TODO(christhetree): check all preserved_attrs have been exported
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         """
@@ -45,8 +42,8 @@ class NeutoneModel(ABC, nn.Module):
         work).
         """
         super().__init__()
-        self.MAX_N_PARAMS = NeutoneModel.MAX_N_PARAMS
-        self.SDK_VERSION = NeutoneModel.SDK_VERSION
+        self.MAX_N_PARAMS = constants.MAX_N_PARAMS
+        self.SDK_VERSION = constants.SDK_VERSION
         self.use_debug_mode = use_debug_mode
 
         assert len(self.get_neutone_parameters()) <= self.MAX_N_PARAMS

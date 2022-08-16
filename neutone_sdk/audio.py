@@ -11,6 +11,9 @@ import torch as tr
 from torch import nn, Tensor
 import torchaudio
 from torch.jit import ScriptModule
+from tqdm import tqdm
+
+import neutone_sdk
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -91,17 +94,15 @@ def get_default_audio_samples() -> List[AudioSample]:
 
 
 def render_audio_sample(
-    model: Union["WaveformToWaveformBase", ScriptModule],
+    model: Union["SampleQueueWrapper", "WaveformToWaveformBase", ScriptModule],
     input_sample: AudioSample,
     params: Optional[Tensor] = None,
     output_sr: int = 44100,
 ) -> AudioSample:
     model.use_debug_mode = True  # Turn on debug mode to catch common mistakes when rendering sample audio
-    if len(model.get_native_sample_rates()) > 0:
-        preferred_sr = model.get_native_sample_rates()[0]
-    else:
-        preferred_sr = input_sample.sr
 
+    preferred_sr = neutone_sdk.SampleQueueWrapper.select_best_model_sr(input_sample.sr,
+                                                                       model.get_native_sample_rates())
     if len(model.get_native_buffer_sizes()) > 0:
         buffer_size = model.get_native_buffer_sizes()[0]
     else:
@@ -119,19 +120,24 @@ def render_audio_sample(
     audio_len = audio.size(1)
     padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
     padded_audio = nn.functional.pad(audio, [0, padding_amount])
+    chunks = padded_audio.split(buffer_size, dim=1)
+
+    model.set_daw_sample_rate_and_buffer_size(preferred_sr, buffer_size, preferred_sr, buffer_size)
     audio_out = tr.hstack(
         [
             model.forward(chunk, params)
-            for chunk in padded_audio.split(buffer_size, dim=1)
+            for chunk in tqdm(chunks)
         ]
     )[:, :audio_len]
+    model.reset()
+
     if preferred_sr != output_sr:
         audio_out = torchaudio.transforms.Resample(preferred_sr, output_sr)(audio_out)
 
     # Make the output audio consistent with the input audio
-    if model.is_output_mono() and not input_sample.is_mono():
+    if audio_out.size(0) == 1 and not input_sample.is_mono():
         audio_out = audio_out.repeat(2, 1)
-    elif not model.is_output_mono() and input_sample.is_mono():
+    elif audio_out.size(0) == 2 and input_sample.is_mono():
         audio_out = tr.mean(audio_out, dim=0, keepdim=True)
 
     return AudioSample(audio_out, output_sr)

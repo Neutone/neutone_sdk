@@ -17,14 +17,11 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ClipperModel(nn.Module):
-    def forward(
-        self, x: Tensor, min_val: Tensor, max_val: Tensor, gain: Tensor
-    ) -> Tensor:
-        for i in range(x.shape[-1]):
-            for c in range(x.shape[0]):
-                x[c][i] = tr.min(
-                    tr.max(x[c][i], gain[i] * -min_val[i]), gain[i] * max_val[i]
-                )
+    def forward(self, x: Tensor, min_val: Tensor, max_val: Tensor, gain: Tensor) -> Tensor:
+        tr.neg(min_val, out=min_val)
+        tr.mul(gain, min_val, out=min_val)
+        tr.mul(gain, max_val, out=max_val)
+        tr.clip(x, min=min_val, max=max_val, out=x)
         return x
 
 

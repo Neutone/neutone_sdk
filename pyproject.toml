@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "neutone_sdk"
-version = "0.2.4"
+version = "1.0.0"
 description = "SDK for wrapping deep learning models for deployment in Neutone"
 readme = "README.md"
 authors = ["Qosmo <info@qosmo.jp>"]
@@ -16,6 +16,7 @@ torch = "1.11.0"
 torchaudio = "0.11.0"
 jsonschema = "^4.4.0"
 requests = "^2.27.1"
+tqdm = "^4.63.1"
 
 [tool.poetry.dev-dependencies]
 black = "22.3.0"

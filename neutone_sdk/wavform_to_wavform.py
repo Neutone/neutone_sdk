@@ -97,6 +97,20 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         pass
 
+    def set_buffer_size(self, n_samples: int) -> bool:
+        """
+        If the model supports dynamic buffer size resizing, add the
+        functionality here.
+
+        Args:
+            n_samples: The number of samples to resize the buffer to.
+
+        Returns:
+            bool: True if successful, False if not supported or unsuccessful.
+                  Defaults to False.
+        """
+        return False
+
     def aggregate_param(self, param: Tensor) -> Tensor:
         """
         Aggregates a parameter of size (buffer_size,) to a single value.
@@ -123,6 +137,7 @@ class WaveformToWaveformBase(NeutoneModel):
             # The default params come in as one value by default but for compatibility
             # with the plugin inputs we repeat them for the size of the buffer
             # TODO(christhetree): try expand instead of repeat to avoid memory allocation
+            # params = self.get_default_param_values().expand(-1, x.shape[1])
             params = self.get_default_param_values().repeat(1, x.shape[1])
 
         if self.use_debug_mode:
@@ -141,6 +156,11 @@ class WaveformToWaveformBase(NeutoneModel):
         return x
 
     @tr.jit.export
+    def is_resampling(self) -> bool:
+        # w2w wrapper does not support resampling by default
+        return False
+
+    @tr.jit.export
     def calc_min_delay_samples(self) -> int:
         """
         If the model introduces a minimum amount of delay to the output audio,
@@ -153,37 +173,15 @@ class WaveformToWaveformBase(NeutoneModel):
         return 0
 
     @tr.jit.export
-    def is_resampling(self) -> bool:
-        # TODO(cm): this will be removed in the next major release
-        # WaveformToWaveformBase does not handle resampling
-        return False
-
-    @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
-        self,
-        daw_sr: int,
-        daw_buffer_size: int,
-        model_sr: Optional[int] = None,
-        model_buffer_size: Optional[int] = None,
+            self,
+            daw_sr: int,
+            daw_buffer_size: int,
+            model_sr: Optional[int] = None,
+            model_buffer_size: Optional[int] = None,
     ) -> None:
-        # TODO(cm): this will be removed in the next major release
-        # WaveformToWaveformBase does not handle different DAW and model buffer sizes and sample rates
+        # w2w only supports changing buffer size
         self.set_buffer_size(daw_buffer_size)
-
-    @tr.jit.export
-    def set_buffer_size(self, n_samples: int) -> bool:
-        """
-        If the model supports dynamic buffer size resizing, add the
-        functionality here.
-
-        Args:
-            n_samples: The number of samples to resize the buffer to.
-
-        Returns:
-            bool: True if successful, False if not supported or unsuccessful.
-                  Defaults to False.
-        """
-        return False
 
     @tr.jit.export
     def reset(self) -> bool:
@@ -207,10 +205,9 @@ class WaveformToWaveformBase(NeutoneModel):
                 "is_output_mono",
                 "get_native_sample_rates",
                 "get_native_buffer_sizes",
-                "calc_min_delay_samples",
                 "is_resampling",
+                "calc_min_delay_samples",
                 "set_daw_sample_rate_and_buffer_size",
-                "set_buffer_size""",
                 "reset",
                 "get_preserved_attributes",
                 "to_metadata",

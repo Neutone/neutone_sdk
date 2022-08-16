@@ -96,9 +96,13 @@ def save_neutone_model(
 
     root_dir.mkdir(exist_ok=True, parents=True)
 
+    # TODO(cm): remove local import (currently prevents circular import)
+    from neutone_sdk import SampleQueueWrapper
+    sqw = SampleQueueWrapper(model)
+
     with tr.no_grad():
         log.info("Converting model to torchscript...")
-        script = model_to_torchscript(model, freeze=freeze, optimize=optimize)
+        script = model_to_torchscript(sqw, freeze=freeze, optimize=optimize)
 
         # We need to keep a copy because some models still don't implement reset
         # properly and when rendering the samples we might create unwanted state.
@@ -114,7 +118,7 @@ def save_neutone_model(
             input_samples = get_default_audio_samples()
             audio_sample_pairs = []
             for input_sample in input_samples:
-                rendered_sample = render_audio_sample(model, input_sample)
+                rendered_sample = render_audio_sample(sqw, input_sample)
                 audio_sample_pairs.append(
                     AudioSamplePair(input_sample, rendered_sample)
                 )
@@ -136,10 +140,13 @@ def save_neutone_model(
         log.info("Loading saved model and metadata...")
         loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
         check_for_preserved_attributes(loaded_model, loaded_model.get_preserved_attributes())
-        log.info("Testing methods on saved model...")
-        loaded_model.set_daw_sample_rate_and_buffer_size(48000, 2048)
+        log.info("Testing methods used by the VST...")
+        loaded_model.calc_min_delay_samples()
+        loaded_model.set_daw_sample_rate_and_buffer_size(48000, 512)
         loaded_model.reset()
-        log.info(f"Delay reported to the DAW: {loaded_model.calc_min_delay_samples()}")
+        loaded_model.is_resampling()
+        log.info(f"Delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
+                 f"{loaded_model.calc_min_delay_samples()}")
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")
@@ -160,10 +167,7 @@ def save_neutone_model(
             assert tr.allclose(script_model_render, loaded_model_render)
 
             log.info("Your model has been exported successfully!")
-            log.info(
-                "You can now test it using the plugin available at https://neutone.space"
-            )
-            log.info("Note that in beta we only support 48kHz SR / 2048 buffer size")
+            log.info("You can now test it using the plugin available at https://neutone.space")
             log.info(
                 """Additionally, the parameter helper text is not displayed
                     correctly when using the local load functionality"""

@@ -82,11 +82,15 @@ def get_default_audio_samples() -> List[AudioSample]:
         "Using default sample... Please consider using your own audio samples by overriding the get_audio_samples method"
     )
     wave_inst, sr_inst = torchaudio.load(
-        io.BytesIO(pkgutil.get_data(__package__, "assets/default_samples/sample_inst.mp3")),
+        io.BytesIO(
+            pkgutil.get_data(__package__, "assets/default_samples/sample_inst.mp3")
+        ),
         format="mp3",
     )
     wave_music, sr_music = torchaudio.load(
-        io.BytesIO(pkgutil.get_data(__package__, "assets/default_samples/sample_music.mp3")),
+        io.BytesIO(
+            pkgutil.get_data(__package__, "assets/default_samples/sample_music.mp3")
+        ),
         format="mp3",
     )
 
@@ -99,10 +103,13 @@ def render_audio_sample(
     params: Optional[Tensor] = None,
     output_sr: int = 44100,
 ) -> AudioSample:
-    model.use_debug_mode = True  # Turn on debug mode to catch common mistakes when rendering sample audio
+    model.use_debug_mode = (
+        True  # Turn on debug mode to catch common mistakes when rendering sample audio
+    )
 
-    preferred_sr = neutone_sdk.SampleQueueWrapper.select_best_model_sr(input_sample.sr,
-                                                                       model.get_native_sample_rates())
+    preferred_sr = neutone_sdk.SampleQueueWrapper.select_best_model_sr(
+        input_sample.sr, model.get_native_sample_rates()
+    )
     if len(model.get_native_buffer_sizes()) > 0:
         buffer_size = model.get_native_buffer_sizes()[0]
     else:
@@ -122,12 +129,11 @@ def render_audio_sample(
     padded_audio = nn.functional.pad(audio, [0, padding_amount])
     chunks = padded_audio.split(buffer_size, dim=1)
 
-    model.set_daw_sample_rate_and_buffer_size(preferred_sr, buffer_size, preferred_sr, buffer_size)
+    model.set_daw_sample_rate_and_buffer_size(
+        preferred_sr, buffer_size, preferred_sr, buffer_size
+    )
     audio_out = tr.hstack(
-        [
-            model.forward(chunk, params)
-            for chunk in tqdm(chunks)
-        ]
+        [model.forward(chunk, params).clone() for chunk in tqdm(chunks)]
     )[:, :audio_len]
     model.reset()
 

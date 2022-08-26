@@ -186,10 +186,13 @@ To submit a model, please [open an issue on the GitHub repository](https://githu
 
 <a name="examples"/>
 
-## Examples
+## Examples and Notebooks
 
-- Full clipper distortion model example can be found [here](examples/example_clipper.py)
+- Full clipper distortion model example can be found [here](examples/example_clipper.py).
 - Example of a random overdrive model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found [here](examples/example_overdrive-random.py) WIP
+- Notebooks for different models showing the entire workflow from training to exporting it using Neutone
+    - [DDSP](https://colab.research.google.com/drive/15FuafmtGWEyvTOOQbN1AMIQRhGLy23Pg)
+    - [RAVE](https://colab.research.google.com/drive/1hty5Bd7rJJ70hlI-5720sEY3kylNxBIt)
 
 <a name="contributing"/>
 

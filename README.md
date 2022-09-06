@@ -2,15 +2,19 @@
 
 We open source this SDK so researchers can wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer both functionality for loading the models locally in the plugin as well as contributing them to the default list of models that is available to anyone running the plugin. We hope this will both give an opportunity for researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
 
-## Public Beta
+## v1 Release
 
-The Neutone SDK is currently in public beta. The following are known shortcomings of the SDK and plugin:
-- The input and output of the models in the SDK is mono, not stereo.
-- We recommend setting the DAW settings to 44100 or 48000 sampling rate, 2048 buffer size
-- Freezing models on save can cause instabilities
-- Presets and displaying metadata information does not currently work with local model loading in the plugin
+The Neutone SDK is currently on version 1.0.0. Models exported with this version of the SDK will be incompatible with beta versions of the plugin to please make sure you are using the right version. 
 
-However, we do not expect big changes in the interface at this point so any models converted with the current version should be directly compatible with the release or require minimal changes.
+
+The restriction for a sampling rate of 48kHz and a buffer size of 2048 is now gone and the SDK contains a wrapper that supports on the fly resampling and queueing to accomodate the requirements of both the models and the DAW thanks to great work by [@christhetree](https://github.com/christhetree).
+
+
+The following are known shortcomings:
+- Freezing models on save can cause instabilities, we recommend trying to save models both with and without freeze.
+- Displaying metadata information does not currently work with local model loading in the plugin.
+- Lookahead and on the fly STFT transforms will be implemented at the SDK level in the near future but is currently possible with additional code.
+- Windows and M1 acceleration are currently not supported.
 
 Logs are currently dumped to `/Users/<username>/Library/Application Support/Qosmo/Neutone/neutone.log`
 
@@ -47,10 +51,7 @@ pip install -e "git+https://github.com/QosmoInc/neutone_sdk.git#egg=neutone_sdk"
 
 ## SDK Description
 
-The SDK provides functionality for wrapping existing PyTorch models in a way that can make them executable within the VST plugin. At its core the plugin is sending chunks of audio samples at a certain sample rate as an input and expects the same amount of samples at the output. Thus the simplest models also follow this input-output format and an example can be seen in [example_clipper.py](https://github.com/QosmoInc/neutone_sdk/blob/main/examples/example_clipper.py). However, there are many different kinds of audio models so in the SDK we provide functionality for:
-- On the fly STFT transforms for models that operate on spectrograms
-- On the fly resampling between the DAW sample rate and the model sample rate - COMING SOON
-- FIFO queues for supporting different buffer sizes as an input to the model - COMING SOON
+The SDK provides functionality for wrapping existing PyTorch models in a way that can make them executable within the VST plugin. At its core the plugin is sending chunks of audio samples at a certain sample rate as an input and expects the same amount of samples at the output. Thus the simplest models also follow this input-output format and an example can be seen in [example_clipper.py](https://github.com/QosmoInc/neutone_sdk/blob/main/examples/example_clipper.py).
 
 <a name="usage"/>
 
@@ -60,7 +61,7 @@ The SDK provides functionality for wrapping existing PyTorch models in a way tha
 
 We provide several models in the [examples](https://github.com/QosmoInc/neutone-sdk/blob/main/examples) directory. We will go through one of the simplest models, a distortion model, to illustrate.
 
-Assume we have the following PyTorch model. Parameters will be covered later on, we will focus on the inputs and outputs for now. Assume this model receives a Tensor of shape `(2, num_samples)` as an input where `num_samples` is a parameter that can be specified.
+Assume we have the following PyTorch model. Parameters will be covered later on, we will focus on the inputs and outputs for now. Assume this model receives a Tensor of shape `(2, buffer_size)` as an input where `buffer_size` is a parameter that can be specified.
 
 ```python
 class ClipperModel(nn.Module):
@@ -91,11 +92,11 @@ class ClipperModelWrapper(WaveformToWaveformBase):
 
 The method that does most of the work is `do_forward_pass`. In this case it is just a simple passthrough, but we will use it to handle parameters later on.
 
-TODO: It currently runs as mono-mono and the `is_input_mono`, `is_output_mono` toggles do not do anything
+By default the VST runs as `stereo-stereo` but when mono is desired for the model we can use the `is_input_mono` and `is_output_mono` to inform the SDK and have the inputs and outputs converted automatically. If `is_input_mono` is toggled an averaged `(1, buffer_size)` shaped Tensor will be passed as an input instead of `(2, buffer_size)`. If `is_output_mono` is toggled, `do_forward_pass` is expected to return a mono Tensor (shape `(1, buffer_size)`) that will then be duplicated across both channels at the output of the VST. This is done within the SDK to avoid unnecessary memory allocations on each pass.
 
-By default the VST runs as `stereo-stereo` but when mono is desired for the model we can use the `is_input_mono` and `is_output_mono` to switch. If `is_input_mono` is toggled an averaged `(1, num_samples)` shaped Tensor will be passed as an input instead of `(2, num_samples)`. If `is_output_mono` is toggled, `do_forward_pass` is expected to return a mono Tensor that will then be duplicated across both channels at the output of the VST.
+`get_native_sample_rates` and `get_native_buffer_sizes` can be used to specify any preferred sample rates or buffer sizes. In most cases these are expected to only have one element but extra flexibility is provided for more complex models. In case multiple options are provided the SDK will try to find the best one for the current setting of the DAW. Whenever the sample rate or buffer size is different from the one of the DAW a wrapper is automatically triggered that converts to the correct sampling rate or implements a FIFO queue for the requested buffer size or both. This will incur a small performance penalty and add some amount of delay. In case a model is compatible with any sample rate and/or buffer_size these lists can be left empty.
 
-`get_native_sample_rates` and `get_native_buffer_sizes` can be used to specify any preferred sample rates or buffer sizes. In most cases these are expected to only have one element but extra flexibility is provided for more complex models. In case multiple options are provided the wrappers try to find the best one for the current setting of the DAW. Whenever the sample rate or buffer size is different from the one of the DAW a wrapper is automatically triggered that converts to the correct sampling rate or implements a FIFO queue for the requested buffer size or both. This will incur a performance penalty and potentially add delay.
+This means that the tensor `x` in the `do_forward_pass` method is guaranteed to be of shape `(1 if is_input_mono else 2, buffer_size)`  where `buffer_size` will be chosen at runtime from the list provided in the `get_native_buffer_sizes` method.
 
 ### Exporting models and loading in the plugin
 
@@ -110,8 +111,8 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     
     def get_parameters(self) -> List[Parameter]:
         return [Parameter(name="min", description="min clip threshold", default_value=0.5),
-         Parameter(name="max", description="max clip threshold", default_value=1.0),
-         Parameter(name="gain", description="scale clip threshold", default_value=1.0)]
+                Parameter(name="max", description="max clip threshold", default_value=1.0),
+                Parameter(name="gain", description="scale clip threshold", default_value=1.0)]
          
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         min = params["min"]
@@ -189,7 +190,7 @@ To submit a model, please [open an issue on the GitHub repository](https://githu
 ## Examples and Notebooks
 
 - Full clipper distortion model example can be found [here](examples/example_clipper.py).
-- Example of a random overdrive model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found [here](examples/example_overdrive-random.py) WIP
+- Example of a random overdrive model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found [here](examples/example_overdrive-random.py)
 - Notebooks for different models showing the entire workflow from training to exporting it using Neutone
     - [DDSP](https://colab.research.google.com/drive/15FuafmtGWEyvTOOQbN1AMIQRhGLy23Pg)
     - [RAVE](https://colab.research.google.com/drive/1hty5Bd7rJJ70hlI-5720sEY3kylNxBIt)
@@ -201,11 +202,8 @@ To submit a model, please [open an issue on the GitHub repository](https://githu
 We welcome any contributions to the SDK. Please add types wherever possible and use the `black` formatter for readability.
 
 The current roadmap is:
-- Finish our implementation for any combination of mono / stereo input and output
-- Finish our implementation of intelligent resampling and queueing for common sample rate and buffer size combinations
 - Additional testing and benchmarking of models during or after exporting
-- General bug fixing and stability improvements
-- Adding our own experimental neural DSP models
+- Implement lookahead and on the fly STFT transforms
 
 <a name="credits"/>
 

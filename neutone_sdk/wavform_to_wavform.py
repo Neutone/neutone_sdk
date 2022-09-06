@@ -34,6 +34,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
     sdk_version: str
+    pytorch_version: str
 
 
 class WaveformToWaveformBase(NeutoneModel):
@@ -174,11 +175,11 @@ class WaveformToWaveformBase(NeutoneModel):
 
     @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
-            self,
-            daw_sr: int,
-            daw_buffer_size: int,
-            model_sr: Optional[int] = None,
-            model_buffer_size: Optional[int] = None,
+        self,
+        daw_sr: int,
+        daw_buffer_size: int,
+        model_sr: Optional[int] = None,
+        model_buffer_size: Optional[int] = None,
     ) -> None:
         # w2w only supports changing buffer size
         self.set_buffer_size(daw_buffer_size)
@@ -234,6 +235,7 @@ class WaveformToWaveformBase(NeutoneModel):
             tags=core_metadata.tags,
             model_version=core_metadata.model_version,
             sdk_version=core_metadata.sdk_version,
+            pytorch_version=core_metadata.pytorch_version,
             citation=core_metadata.citation,
             is_experimental=core_metadata.is_experimental,
             is_input_mono=self.is_input_mono(),

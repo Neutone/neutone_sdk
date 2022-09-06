@@ -29,6 +29,7 @@ class CoreMetadata(NamedTuple):
     tags: List[str]
     model_version: str
     sdk_version: str
+    pytorch_version: str
     citation: str
     is_experimental: bool
 
@@ -256,6 +257,7 @@ class NeutoneModel(ABC, nn.Module):
             tags=self.get_tags(),
             model_version=self.get_model_version(),
             sdk_version=self.SDK_VERSION,
+            pytorch_version=tr.__version__,
             citation=self.get_citation(),
             is_experimental=self.is_experimental(),
         )

@@ -9,6 +9,7 @@ from torch.jit import Final
 
 from neutone_sdk import WaveformToWaveformMetadata
 from neutone_sdk.sandwich import InterpolationResampler, ChannelNormalizerSandwich
+from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -70,9 +71,6 @@ class InplaceTensorAudioQueue:
 
 # TODO(cm): add support for crossfading
 class SampleQueueWrapper(nn.Module):
-    DEFAULT_DAW_SR: Final[int] = 48000
-    DEFAULT_DAW_BS: Final[int] = 2048
-
     def __init__(self,
                  w2w_base: "WaveformToWaveformBase",
                  daw_sr: int = DEFAULT_DAW_SR,

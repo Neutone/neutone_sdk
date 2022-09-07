@@ -44,7 +44,7 @@ The Neutone Plugin is available at [https://neutone.space](https://neutone.space
 You can install `neutone_sdk` using pip: 
 
 ```
-pip install -e "git+https://github.com/QosmoInc/neutone_sdk.git#egg=neutone_sdk"
+pip install neutone_sdk
 ```
 
 <a name="description"/>

@@ -2,6 +2,16 @@
 
 We open source this SDK so researchers can wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer both functionality for loading the models locally in the plugin as well as contributing them to the default list of models that is available to anyone running the plugin. We hope this will both give an opportunity for researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
 
+<a name="examples"/>
+
+## Examples and Notebooks
+
+- Full clipper distortion model example can be found [here](examples/example_clipper.py).
+- Example of a random overdrive model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found [here](examples/example_overdrive-random.py)
+- Notebooks for different models showing the entire workflow from training to exporting it using Neutone
+    - [DDSP](https://colab.research.google.com/drive/15FuafmtGWEyvTOOQbN1AMIQRhGLy23Pg)
+    - [RAVE](https://colab.research.google.com/drive/1hty5Bd7rJJ70hlI-5720sEY3kylNxBIt)
+
 ## v1 Release
 
 The Neutone SDK is currently on version 1.0.0. Models exported with this version of the SDK will be incompatible with beta versions of the plugin to please make sure you are using the right version. 
@@ -184,16 +194,6 @@ Check out the documentation of the methods inside [core.py](neutone_sdk/core.py)
 To submit a model, please [open an issue on the GitHub repository](https://github.com/QosmoInc/neutone_sdk/issues/new?assignees=bogdanteleaga%2C+christhetree&labels=enhancement&template=request-add-model.md&title=%5BMODEL%5D+%3CNAME%3E). We currently need the following:
 - A short description of what the model does and how it can contribute to the community
 - A link to the `model.nm` file outputted by the `save_neutone_model` helper function
-
-<a name="examples"/>
-
-## Examples and Notebooks
-
-- Full clipper distortion model example can be found [here](examples/example_clipper.py).
-- Example of a random overdrive model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found [here](examples/example_overdrive-random.py)
-- Notebooks for different models showing the entire workflow from training to exporting it using Neutone
-    - [DDSP](https://colab.research.google.com/drive/15FuafmtGWEyvTOOQbN1AMIQRhGLy23Pg)
-    - [RAVE](https://colab.research.google.com/drive/1hty5Bd7rJJ70hlI-5720sEY3kylNxBIt)
 
 <a name="contributing"/>
 

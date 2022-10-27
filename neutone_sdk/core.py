@@ -35,7 +35,6 @@ class CoreMetadata(NamedTuple):
 
 
 class NeutoneModel(ABC, nn.Module):
-    # TODO(christhetree): check all preserved_attrs have been exported
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         """
         Creates an Neutone model, wrapping a child model (that does the real
@@ -76,6 +75,8 @@ class NeutoneModel(ABC, nn.Module):
             ]
         ).unsqueeze(-1)
         self.register_buffer("default_param_values", default_param_values)
+        self.remapped_params = {neutone_param.name: default_param_values[idx]
+                                for idx, neutone_param in enumerate(self.get_neutone_parameters())}
 
     @abstractmethod
     def get_model_name(self) -> str:

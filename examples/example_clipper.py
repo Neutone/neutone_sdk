@@ -76,9 +76,8 @@ class ClipperModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 
-    def aggregate_param(self, param: Tensor) -> Tensor:
-        assert param.ndim == 1
-        return param  # We want sample-level control, so no aggregation
+    def aggregate_params(self, params: Tensor) -> Tensor:
+        return params  # We want sample-level control, so no aggregation
 
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         min_val, max_val, gain = params["min"], params["max"], params["gain"]

@@ -78,13 +78,16 @@ class ProfilingModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return [512]
 
-    def aggregate_param(self, param: Tensor) -> Tensor:
-        assert param.ndim == 1
-        return param  # We want sample-level control, so no aggregation
+    def get_look_behind_samples(self) -> int:
+        return 0
+
+    # def aggregate_params(self, param: Tensor) -> Tensor:
+    #     return param  # We want sample-level control, so no aggregation
 
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         min_val, max_val, gain = params["min"], params["max"], params["gain"]
         x = self.model.forward(x, min_val, max_val, gain)
+        x = x[:, self.get_look_behind_samples():]
         return x
 
 
@@ -102,6 +105,7 @@ def profile_sqw(sqw: SampleQueueWrapper,
         param_buffers = [None for _ in range(n_iters)]
 
     sqw.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs)
+    sqw.prepare_for_inference()
 
     with profile(activities=[ProfilerActivity.CPU],
                  with_stack=True,
@@ -112,7 +116,7 @@ def profile_sqw(sqw: SampleQueueWrapper,
                 out_buff = sqw.forward(audio_buff, param_buff)
 
     print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
-    # print(prof.key_averages(group_by_stack_n=5).table(sort_by="cpu_time_total", row_limit=5))
+    # print(prof.key_averages(group_by_stack_n=5).table(sort_by="cpu_time_total", row_limit=10))
     print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
     print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cpu_memory_usage", row_limit=5))
 

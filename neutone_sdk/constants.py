@@ -1,6 +1,6 @@
 from pathlib import Path
 
-SDK_VERSION = "1.0.1"
+SDK_VERSION = "1.1.0"
 
 MAX_N_PARAMS = 4
 MAX_N_AUDIO_SAMPLES = 3

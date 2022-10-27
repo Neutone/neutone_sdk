@@ -3,9 +3,10 @@ from abc import abstractmethod
 from typing import NamedTuple, Dict, List, Optional
 
 import torch as tr
-from torch import Tensor
+from torch import Tensor, nn
 
 from neutone_sdk import NeutoneModel
+from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
@@ -33,11 +34,23 @@ class WaveformToWaveformMetadata(NamedTuple):
     model_type: str
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
+    look_behind_samples: int
     sdk_version: str
     pytorch_version: str
 
 
 class WaveformToWaveformBase(NeutoneModel):
+    def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
+        super().__init__(model, use_debug_mode)
+        self.in_n_ch = 1 if self.is_input_mono() else 2
+        # These initializations are all temporary for TorchScript typing, otherwise they would be None
+        # These variables are only used if get_look_behind_samples() is greater than 0
+        self.curr_bs = -1
+        self.in_queue = CircularInplaceTensorQueue(self.in_n_ch, 1)
+        self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS, 1)
+        self.model_in_buffer = tr.zeros((self.in_n_ch, 1))
+        self.params_buffer = tr.zeros((self.MAX_N_PARAMS, 1))
+
     @abstractmethod
     def is_input_mono(self) -> bool:
         pass
@@ -72,15 +85,17 @@ class WaveformToWaveformBase(NeutoneModel):
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         """
         SDK users can overwrite this method to implement the logic for their models.
+        The inputs to this method should be treated as read-only.
 
         Args:
             x:
                 torch Tensor of shape [num_channels, num_samples]
                 num_channels is 1 if `is_input_mono` is set to True, otherwise 2
-                num_samples will be one of the sizes specificed in native_buffer_sizes
+                num_samples will be one of the sizes specified in `get_native_buffer_sizes`
+                If a look-behind buffer is being used, see `get_look_behind_samples` for details on the shape of x.
 
-                The sample rate of the audio will also be one of the ones specific in
-                native_sample_rates.
+                The sample rate of the audio will also be one of the ones specified in
+                `get_native_sample_rates`.
 
                 The best combination is chosen based on the DAW parameters at runtime. If
                 unsure, provide only one value in the lists.
@@ -89,7 +104,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 get_parameters) to values. By default, we aggregate the sample values over the
                 entire buffer and provide the mean value.
 
-                Override the `remap_params_for_forward_pass` method for more fine grained control.
+                Override the `aggregate_params` method for more fine grained control.
 
         Returns:
             torch Tensor of shape [num_channels, num_samples]
@@ -98,7 +113,23 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         pass
 
-    def set_buffer_size(self, n_samples: int) -> bool:
+    def get_look_behind_samples(self) -> int:
+        """
+        If the model requires a look-behind buffer, add the number of samples needed here. This means that the
+        do_forward_pass() method will always received a tensor of shape (in_n_ch, look_behind_samples + buffer_size),
+        but must still return a tensor of shape (out_n_ch, buffer_size) of the latest samples.
+
+        We recommend avoiding using a look-behind buffer as much as possible since it makes your model less efficient
+        and can result in wasted calculations during each forward pass. If using a purely convolutional model, try
+        switching all the convolutions to cached convolutions instead.
+
+        Returns:
+            int: The number of look-behind samples expected by the model.
+                 Defaults to 0 (no look-behind buffer)
+        """
+        return 0
+
+    def set_model_buffer_size(self, n_samples: int) -> bool:
         """
         If the model supports dynamic buffer size resizing, add the
         functionality here.
@@ -112,21 +143,38 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         return False
 
-    def aggregate_param(self, param: Tensor) -> Tensor:
+    def reset_model(self) -> bool:
         """
-        Aggregates a parameter of size (buffer_size,) to a single value.
+        If the model supports resetting (e.g. wiping internal state), add the
+        functionality here.
 
-        By default we take the mean value of to provide a single value
+        Returns:
+            bool: True if successful, False if not supported or unsuccessful.
+                  Defaults to False.
+        """
+        return False
+
+    def aggregate_params(self, params: Tensor) -> Tensor:
+        """
+        Aggregates parameters of size (MAX_N_PARAMS, buffer_size) to single values.
+
+        By default we take the mean value along dimension 1 to provide a single value for each parameter
         for the current buffer.
 
         For more fine grained control, override this method as required.
         """
         if self.use_debug_mode:
-            assert param.ndim == 1
-        agg_param = tr.mean(
-            param, dim=0, keepdim=True
-        )  # TODO(christhetree): prevent memory allocation
-        return agg_param
+            assert params.ndim == 2
+        # This prevents memory allocation by re-using the space in the params tensor
+        agg_params = params[:, 0:1]
+        tr.mean(params, dim=1, keepdim=True, out=agg_params)
+        return agg_params
+
+    def prepare_for_inference(self) -> None:
+        """Prepare the wrapper and model for inference and to be converted to torchscript."""
+        super().prepare_for_inference()
+        self.in_queue.use_debug_mode = False
+        self.params_queue.use_debug_mode = False
 
     def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
         """
@@ -134,25 +182,60 @@ class WaveformToWaveformBase(NeutoneModel):
 
         If params is None, we fill in the default values.
         """
+        if self.use_debug_mode:
+            validate_waveform(x, self.is_input_mono())
+        in_n = x.size(1)
+
         if params is None:
             # The default params come in as one value by default but for compatibility
-            # with the plugin inputs we repeat them for the size of the buffer
-            # TODO(christhetree): try expand instead of repeat to avoid memory allocation
-            # params = self.get_default_param_values().expand(-1, x.shape[1])
-            params = self.get_default_param_values().repeat(1, x.shape[1])
+            # with the plugin inputs we repeat them for the size of the buffer.
+            # This allocates memory but should never happen in the VST since it always passes parameters
+            params = self.get_default_param_values().repeat(1, in_n)
 
         if self.use_debug_mode:
-            assert params.shape == (self.MAX_N_PARAMS, x.shape[1])
-            validate_waveform(x, self.is_input_mono())
+            assert params.shape == (self.MAX_N_PARAMS, in_n)
+            if self.curr_bs != -1:
+                assert in_n == self.curr_bs, f"Invalid model input audio length of {in_n} samples, " \
+                                             f"must be of length {self.curr_bs} samples"
+            elif self.get_native_buffer_sizes():
+                assert in_n in self.get_native_buffer_sizes(), \
+                    f"The model does not support a buffer size of {in_n}"
 
-        remapped_params = {
-            param.name: self.aggregate_param(value)
-            for param, value in zip(self.get_neutone_parameters(), params)
-        }
-        x = self.do_forward_pass(x, remapped_params)
+            if self.get_look_behind_samples():
+                # If a look behind buffer is being used, the queues and self.curr_bs must be initialized.
+                # This will only potentially trigger in the forward function when just the wrapper is being tested in
+                # python (because the SQW already sets the buffer size in its constructor when using the VST or SQW)
+                assert self.curr_bs != -1, "Model uses a look-behind buffer, but the incoming buffer size has not " \
+                                           "been set. Be sure to call `set_buffer_size` before using the model."
+
+        if self.get_look_behind_samples():
+            self.in_queue.push(x)
+            self.params_queue.push(params)
+            n = self.in_queue.size
+            self.model_in_buffer[:, 0:-n] = 0
+            self.in_queue.fill(self.model_in_buffer[:, -n:])
+            self.params_buffer[:, 0:-n] = self.get_default_param_values()
+            self.params_queue.fill(self.params_buffer[:, -n:])
+            x = self.model_in_buffer
+            params = self.params_buffer
+
+        params = self.aggregate_params(params)
+        if self.use_debug_mode:
+            assert params.ndim == 2
+            assert params.size(0) == self.MAX_N_PARAMS
+        for idx, neutone_param in enumerate(self.get_neutone_parameters()):
+            self.remapped_params[neutone_param.name] = params[idx]
+
+        x = self.do_forward_pass(x, self.remapped_params)
 
         if self.use_debug_mode:
             validate_waveform(x, self.is_output_mono())
+            if self.curr_bs == -1:
+                assert x.size(1) == in_n
+            else:
+                assert x.size(1) == self.curr_bs, f"Invalid model output audio length of {x.size(1)} samples, " \
+                                                  f"must be of length {self.curr_bs} samples " \
+                                                  f"(are you using a look behind buffer incorrectly?)"
 
         return x
 
@@ -174,6 +257,38 @@ class WaveformToWaveformBase(NeutoneModel):
         return 0
 
     @tr.jit.export
+    def set_buffer_size(self, n_samples: int) -> bool:
+        """
+        Sets the buffer size of the wrapper.
+        This should not be overwritten by SDK users, instead please check out the 'set_model_buffer_size' method.
+
+        Args:
+            n_samples: The number of samples to use.
+
+        Returns:
+            bool: True if 'set_model_buffer_size' is implemented and successful, otherwise False.
+        """
+        if self.use_debug_mode:
+            if self.get_native_buffer_sizes():
+                assert n_samples in self.get_native_buffer_sizes(), \
+                    f"The model does not support a native buffer size of {n_samples}"
+
+        if self.get_look_behind_samples():
+            if self.curr_bs == -1 or n_samples != self.curr_bs:
+                self.curr_bs = n_samples
+                queue_len = self.get_look_behind_samples() + self.curr_bs
+                self.in_queue = CircularInplaceTensorQueue(self.in_n_ch,
+                                                           queue_len,
+                                                           use_debug_mode=self.use_debug_mode)
+                self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS,
+                                                               queue_len,
+                                                               use_debug_mode=self.use_debug_mode)
+                self.model_in_buffer = tr.zeros((self.in_n_ch, queue_len))
+                self.params_buffer = self.get_default_param_values().repeat(1, queue_len)
+
+        return self.set_model_buffer_size(n_samples)
+
+    @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
         self,
         daw_sr: int,
@@ -181,20 +296,27 @@ class WaveformToWaveformBase(NeutoneModel):
         model_sr: Optional[int] = None,
         model_buffer_size: Optional[int] = None,
     ) -> None:
+        """
+        This method should only be used when testing the wrapper in the VST without the SampleQueueWrapper.
+        It can be ignored by SDK users.
+        """
         # w2w only supports changing buffer size
         self.set_buffer_size(daw_buffer_size)
 
     @tr.jit.export
     def reset(self) -> bool:
         """
-        If the model supports resetting (e.g. wiping internal state), add the
-        functionality here.
+        Resets the wrapper.
+        This should not be overwritten by SDK users, instead please check out the 'reset_model' method.
 
         Returns:
-            bool: True if successful, False if not supported or unsuccessful.
-                  Defaults to False.
+            bool: True if 'reset_model' is implemented and successful, otherwise False.
         """
-        return False
+        self.in_queue.reset()
+        self.params_queue.reset()
+        self.model_in_buffer.fill_(0)
+        self.params_buffer[:, :] = self.get_default_param_values()
+        return self.reset_model()
 
     @tr.jit.export
     def get_preserved_attributes(self) -> List[str]:
@@ -208,6 +330,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 "get_native_buffer_sizes",
                 "is_resampling",
                 "calc_min_delay_samples",
+                "set_buffer_size",
                 "set_daw_sample_rate_and_buffer_size",
                 "reset",
                 "get_preserved_attributes",
@@ -243,4 +366,5 @@ class WaveformToWaveformBase(NeutoneModel):
             model_type=f"{'mono' if self.is_input_mono() else 'stereo'}-{'mono' if self.is_output_mono() else 'stereo'}",
             native_buffer_sizes=self.get_native_buffer_sizes(),
             native_sample_rates=self.get_native_sample_rates(),
+            look_behind_samples=self.get_look_behind_samples(),
         )

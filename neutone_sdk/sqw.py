@@ -5,68 +5,15 @@ from typing import Optional, List
 
 import torch as tr
 from torch import Tensor, nn
-from torch.jit import Final
 
 from neutone_sdk import WaveformToWaveformMetadata
-from neutone_sdk.sandwich import InterpolationResampler, ChannelNormalizerSandwich
 from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
+from neutone_sdk.queues import CircularInplaceTensorQueue
+from neutone_sdk.sandwich import InterpolationResampler, ChannelNormalizerSandwich
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
-
-
-class InplaceTensorAudioQueue:
-    def __init__(self, n_ch: int, queue_len: int, use_debug_mode: bool = True) -> None:
-        self.use_debug_mode = use_debug_mode
-        self.queue_len = queue_len
-        self.queue = tr.zeros((n_ch, queue_len))
-        self.tmp_queue = tr.zeros((n_ch, queue_len))
-        self.size = 0
-
-    def push(self, x: Tensor) -> None:
-        if self.use_debug_mode:
-            assert x.ndim == self.queue.ndim
-            assert x.size(0) == self.queue.size(0)
-        in_n = x.size(1)
-        if self.use_debug_mode:
-            assert self.size + in_n < self.queue_len
-        self.queue[:, self.size:self.size + in_n] = x
-        self.size += in_n
-
-    def pop(self, out: Tensor) -> int:
-        if self.use_debug_mode:
-            assert out.ndim == self.queue.ndim
-            assert out.size(0) == self.queue.size(0)
-        out_n = out.size(1)
-        if self.use_debug_mode:
-            assert out_n <= self.queue_len
-        out[:, :] = self.queue[:, 0:out_n]
-        return self.remove(out_n)
-
-    def head(self, n: int) -> Tensor:
-        if self.use_debug_mode:
-            assert 0 < n <= self.queue_len
-        return self.queue[:, 0:n]
-
-    def remove(self, out_n: int) -> int:
-        removed_n = min(self.size, out_n)
-        if removed_n > 0:
-            remaining_n = self.size - removed_n
-            # This avoids allocating memory like tr.roll does
-            self.tmp_queue[:, :remaining_n] = self.queue[:, removed_n:removed_n + remaining_n]
-            self.queue[:, :remaining_n] = self.tmp_queue[:, :remaining_n]
-            self.queue[:, remaining_n:removed_n + remaining_n] = 0
-        self.size -= removed_n
-        return removed_n
-
-    def is_empty(self) -> bool:
-        return self.size == 0
-
-    def reset(self) -> None:
-        self.queue.fill_(0)
-        self.tmp_queue.fill_(0)
-        self.size = 0
 
 
 # TODO(cm): add support for crossfading
@@ -211,6 +158,9 @@ class SampleQueueWrapper(nn.Module):
         self.w2w_base.prepare_for_inference()
         self.use_debug_mode = False
         self.channel_normalizer.use_debug_mode = False
+        self.in_queue.use_debug_mode = False
+        self.params_queue.use_debug_mode = False
+        self.out_queue.use_debug_mode = False
         self.eval()
 
     def _forward(self, resampled_x: Tensor, params: Optional[Tensor] = None) -> None:
@@ -347,10 +297,15 @@ class SampleQueueWrapper(nn.Module):
         self.io_bs = io_bs
         self.model_bs = model_bs
 
-        self.in_queue = InplaceTensorAudioQueue(self.in_n_ch, (2 * self.io_bs) + self.model_bs)
-        self.params_queue = InplaceTensorAudioQueue(
-            self.w2w_base.MAX_N_PARAMS, (2 * self.io_bs) + self.model_bs)
-        self.out_queue = InplaceTensorAudioQueue(self.out_n_ch, (2 * self.io_bs) + self.model_bs)
+        self.in_queue = CircularInplaceTensorQueue(self.in_n_ch,
+                                                   (2 * self.io_bs) + self.model_bs,
+                                                   use_debug_mode=self.use_debug_mode)
+        self.params_queue = CircularInplaceTensorQueue(self.w2w_base.MAX_N_PARAMS,
+                                                       (2 * self.io_bs) + self.model_bs,
+                                                       use_debug_mode=self.use_debug_mode)
+        self.out_queue = CircularInplaceTensorQueue(self.out_n_ch,
+                                                    (2 * self.io_bs) + self.model_bs,
+                                                    use_debug_mode=self.use_debug_mode)
 
         self.daw_buffer = tr.zeros((2, self.daw_bs))
         self.model_in_buffer = tr.zeros((self.in_n_ch, self.model_bs))

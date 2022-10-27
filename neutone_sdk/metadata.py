@@ -119,6 +119,10 @@ SCHEMA = {
             },
             "uniqueItems": True,
         },
+        "look_behind_samples": {
+            "type": "integer",
+            "minimum": 0,
+        },
         "sdk_version": {"type": "string"},
     },
     "definitions": {
@@ -156,6 +160,7 @@ SCHEMA = {
         "model_type",
         "native_sample_rates",
         "native_buffer_sizes",
+        "look_behind_samples",
         "sdk_version",
     ],
 }

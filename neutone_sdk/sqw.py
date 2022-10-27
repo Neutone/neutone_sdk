@@ -9,14 +9,13 @@ from torch import Tensor, nn
 from neutone_sdk import WaveformToWaveformMetadata
 from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
 from neutone_sdk.queues import CircularInplaceTensorQueue
-from neutone_sdk.sandwich import InterpolationResampler, ChannelNormalizerSandwich
+from neutone_sdk.sandwich import ChannelNormalizerSandwich, InplaceInterpolationResampler
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-# TODO(cm): add support for crossfading
 class SampleQueueWrapper(nn.Module):
     def __init__(self,
                  w2w_base: "WaveformToWaveformBase",
@@ -34,11 +33,24 @@ class SampleQueueWrapper(nn.Module):
         super().__init__()
         self.use_debug_mode = use_debug_mode
 
+        self.w2w_base = w2w_base
+        self.in_n_ch = 1 if self.is_input_mono() else 2
+        self.out_n_ch = 1 if self.is_output_mono() else 2
+
         self.channel_normalizer = ChannelNormalizerSandwich(use_debug_mode=use_debug_mode)
         # TODO(cm): switch to a more robust resampling method that prevents aliasing
-        self.resample_sandwich = InterpolationResampler(daw_sr, daw_sr)  # Tmp sample rate values
-        self.params_resample_sandwich = InterpolationResampler(daw_sr, daw_sr)  # Tmp sample rate values
-        self.w2w_base = w2w_base
+        self.resample_sandwich = InplaceInterpolationResampler(self.in_n_ch,
+                                                               self.out_n_ch,
+                                                               daw_sr,
+                                                               daw_sr,  # Tmp sample rate values
+                                                               daw_bs,
+                                                               use_debug_mode=use_debug_mode)
+        self.params_resample_sandwich = InplaceInterpolationResampler(self.w2w_base.MAX_N_PARAMS,
+                                                                      self.w2w_base.MAX_N_PARAMS,
+                                                                      daw_sr,
+                                                                      daw_sr,  # Tmp sample rate value
+                                                                      daw_bs,
+                                                                      use_debug_mode=use_debug_mode)
 
         self.daw_sr = daw_sr
         self.model_sr = model_sr
@@ -47,9 +59,6 @@ class SampleQueueWrapper(nn.Module):
         self.model_bs = model_bs
         self.is_queue_saturated = False
         self.saturation_n = None
-
-        self.in_n_ch = 1 if self.is_input_mono() else 2
-        self.out_n_ch = 1 if self.is_output_mono() else 2
 
         self.in_queue = None
         self.params_queue = None
@@ -158,6 +167,8 @@ class SampleQueueWrapper(nn.Module):
         self.w2w_base.prepare_for_inference()
         self.use_debug_mode = False
         self.channel_normalizer.use_debug_mode = False
+        self.resample_sandwich.use_debug_mode = False
+        self.params_resample_sandwich.use_debug_mode = False
         self.in_queue.use_debug_mode = False
         self.params_queue.use_debug_mode = False
         self.out_queue.use_debug_mode = False
@@ -203,7 +214,7 @@ class SampleQueueWrapper(nn.Module):
         # if self.is_queue_saturated and out_popped_n < x.shape[1]:
         #     log.warning('queue is starved')
 
-        x = self.resample_sandwich.process_out(self.io_out_buffer, in_n)
+        x = self.resample_sandwich.process_out(self.io_out_buffer)
         if self.use_debug_mode:
             assert x.size(1) == in_n
         x = self.channel_normalizer(x, is_daw_mono, self.daw_buffer)
@@ -223,7 +234,7 @@ class SampleQueueWrapper(nn.Module):
             out_popped_n = self.out_queue.pop(self.io_out_buffer)
             if self.use_debug_mode:
                 assert out_popped_n == self.io_bs
-            x = self.resample_sandwich.process_out(self.io_out_buffer, self.daw_bs)
+            x = self.resample_sandwich.process_out(self.io_out_buffer)
             x = self.channel_normalizer(x, is_daw_mono, self.daw_buffer)
             if self.use_debug_mode:
                 assert x.size(1) == self.daw_bs
@@ -281,8 +292,8 @@ class SampleQueueWrapper(nn.Module):
 
         io_bs = self.calc_resampled_buffer_size(daw_sr, model_sr, daw_bs)
 
-        self.resample_sandwich.set_sample_rates(daw_sr, model_sr)
-        self.params_resample_sandwich.set_sample_rates(daw_sr, model_sr)
+        self.resample_sandwich.set_sample_rates(daw_sr, model_sr, daw_bs)
+        self.params_resample_sandwich.set_sample_rates(daw_sr, model_sr, daw_bs)
         self.daw_sr = daw_sr
         self.model_sr = model_sr
 

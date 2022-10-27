@@ -11,6 +11,7 @@ from torch.profiler import profile
 from tqdm import tqdm
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter, SampleQueueWrapper, constants
+from neutone_sdk.utils import model_to_torchscript
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ def profile_sqw(sqw: SampleQueueWrapper,
                 daw_bs: int = 512,
                 daw_is_mono: bool = False,
                 use_params: bool = True,
+                convert_to_torchscript: bool = False,
                 n_iters: int = 100) -> None:
     daw_n_ch = 1 if daw_is_mono else 2
     audio_buffers = [tr.rand((daw_n_ch, daw_bs)) for _ in range(n_iters)]
@@ -106,6 +108,10 @@ def profile_sqw(sqw: SampleQueueWrapper,
 
     sqw.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs)
     sqw.prepare_for_inference()
+    if convert_to_torchscript:
+        log.info("Converting to TorchScript")
+        with tr.no_grad():
+            sqw = model_to_torchscript(sqw, freeze=True, optimize=False)
 
     with profile(activities=[ProfilerActivity.CPU],
                  with_stack=True,

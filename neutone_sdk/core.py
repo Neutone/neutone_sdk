@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from abc import ABC, abstractmethod
 from typing import NamedTuple, Dict, List
 
@@ -29,6 +30,7 @@ class CoreMetadata(NamedTuple):
     tags: List[str]
     model_version: str
     sdk_version: str
+    date_created: float
     pytorch_version: str
     citation: str
     is_experimental: bool
@@ -43,6 +45,7 @@ class NeutoneModel(ABC, nn.Module):
         super().__init__()
         self.MAX_N_PARAMS = constants.MAX_N_PARAMS
         self.SDK_VERSION = constants.SDK_VERSION
+        self.CURRENT_TIME = time.time()
         self.use_debug_mode = use_debug_mode
 
         assert len(self.get_neutone_parameters()) <= self.MAX_N_PARAMS
@@ -75,8 +78,10 @@ class NeutoneModel(ABC, nn.Module):
             ]
         ).unsqueeze(-1)
         self.register_buffer("default_param_values", default_param_values)
-        self.remapped_params = {neutone_param.name: default_param_values[idx]
-                                for idx, neutone_param in enumerate(self.get_neutone_parameters())}
+        self.remapped_params = {
+            neutone_param.name: default_param_values[idx]
+            for idx, neutone_param in enumerate(self.get_neutone_parameters())
+        }
 
     @abstractmethod
     def get_model_name(self) -> str:
@@ -259,6 +264,7 @@ class NeutoneModel(ABC, nn.Module):
             model_version=self.get_model_version(),
             sdk_version=self.SDK_VERSION,
             pytorch_version=tr.__version__,
+            date_created=self.CURRENT_TIME,
             citation=self.get_citation(),
             is_experimental=self.is_experimental(),
         )

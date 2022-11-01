@@ -1,4 +1,5 @@
 import logging
+import time
 from abc import abstractmethod
 from typing import NamedTuple, Dict, List, Optional
 
@@ -37,6 +38,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     look_behind_samples: int
     sdk_version: str
     pytorch_version: str
+    date_created: float
 
 
 class WaveformToWaveformBase(NeutoneModel):
@@ -195,18 +197,23 @@ class WaveformToWaveformBase(NeutoneModel):
         if self.use_debug_mode:
             assert params.shape == (self.MAX_N_PARAMS, in_n)
             if self.curr_bs != -1:
-                assert in_n == self.curr_bs, f"Invalid model input audio length of {in_n} samples, " \
-                                             f"must be of length {self.curr_bs} samples"
+                assert in_n == self.curr_bs, (
+                    f"Invalid model input audio length of {in_n} samples, "
+                    f"must be of length {self.curr_bs} samples"
+                )
             elif self.get_native_buffer_sizes():
-                assert in_n in self.get_native_buffer_sizes(), \
-                    f"The model does not support a buffer size of {in_n}"
+                assert (
+                    in_n in self.get_native_buffer_sizes()
+                ), f"The model does not support a buffer size of {in_n}"
 
             if self.get_look_behind_samples():
                 # If a look behind buffer is being used, the queues and self.curr_bs must be initialized.
                 # This will only potentially trigger in the forward function when just the wrapper is being tested in
                 # python (because the SQW already sets the buffer size in its constructor when using the VST or SQW)
-                assert self.curr_bs != -1, "Model uses a look-behind buffer, but the incoming buffer size has not " \
-                                           "been set. Be sure to call `set_buffer_size` before using the model."
+                assert self.curr_bs != -1, (
+                    "Model uses a look-behind buffer, but the incoming buffer size has not "
+                    "been set. Be sure to call `set_buffer_size` before using the model."
+                )
 
         if self.get_look_behind_samples():
             self.in_queue.push(x)
@@ -233,9 +240,11 @@ class WaveformToWaveformBase(NeutoneModel):
             if self.curr_bs == -1:
                 assert x.size(1) == in_n
             else:
-                assert x.size(1) == self.curr_bs, f"Invalid model output audio length of {x.size(1)} samples, " \
-                                                  f"must be of length {self.curr_bs} samples " \
-                                                  f"(are you using a look behind buffer incorrectly?)"
+                assert x.size(1) == self.curr_bs, (
+                    f"Invalid model output audio length of {x.size(1)} samples, "
+                    f"must be of length {self.curr_bs} samples "
+                    f"(are you using a look behind buffer incorrectly?)"
+                )
 
         return x
 
@@ -270,21 +279,24 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         if self.use_debug_mode:
             if self.get_native_buffer_sizes():
-                assert n_samples in self.get_native_buffer_sizes(), \
-                    f"The model does not support a native buffer size of {n_samples}"
+                assert (
+                    n_samples in self.get_native_buffer_sizes()
+                ), f"The model does not support a native buffer size of {n_samples}"
 
         if self.get_look_behind_samples():
             if self.curr_bs == -1 or n_samples != self.curr_bs:
                 self.curr_bs = n_samples
                 queue_len = self.get_look_behind_samples() + self.curr_bs
-                self.in_queue = CircularInplaceTensorQueue(self.in_n_ch,
-                                                           queue_len,
-                                                           use_debug_mode=self.use_debug_mode)
-                self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS,
-                                                               queue_len,
-                                                               use_debug_mode=self.use_debug_mode)
+                self.in_queue = CircularInplaceTensorQueue(
+                    self.in_n_ch, queue_len, use_debug_mode=self.use_debug_mode
+                )
+                self.params_queue = CircularInplaceTensorQueue(
+                    self.MAX_N_PARAMS, queue_len, use_debug_mode=self.use_debug_mode
+                )
                 self.model_in_buffer = tr.zeros((self.in_n_ch, queue_len))
-                self.params_buffer = self.get_default_param_values().repeat(1, queue_len)
+                self.params_buffer = self.get_default_param_values().repeat(
+                    1, queue_len
+                )
 
         return self.set_model_buffer_size(n_samples)
 
@@ -359,6 +371,7 @@ class WaveformToWaveformBase(NeutoneModel):
             model_version=core_metadata.model_version,
             sdk_version=core_metadata.sdk_version,
             pytorch_version=core_metadata.pytorch_version,
+            date_created=core_metadata.date_created,
             citation=core_metadata.citation,
             is_experimental=core_metadata.is_experimental,
             is_input_mono=self.is_input_mono(),

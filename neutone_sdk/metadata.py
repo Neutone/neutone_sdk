@@ -124,6 +124,8 @@ SCHEMA = {
             "minimum": 0,
         },
         "sdk_version": {"type": "string"},
+        "pytorch_version": {"type": "string"},
+        "date_created": {"type": "number"},
     },
     "definitions": {
         "neutoneParameter": {
@@ -162,6 +164,8 @@ SCHEMA = {
         "native_buffer_sizes",
         "look_behind_samples",
         "sdk_version",
+        "pytorch_version",
+        "date_created",
     ],
 }
 

@@ -206,7 +206,7 @@ class SampleQueueWrapper(nn.Module):
         if self.in_queue.size >= self.saturation_n:
             self.is_queue_saturated = True
 
-        while self.is_queue_saturated and self.in_queue.size >= self.model_bs:
+        while self.in_queue.size >= self.model_bs:
             in_popped_n = self.in_queue.pop(self.model_in_buffer)
             if self.use_debug_mode:
                 assert in_popped_n == self.model_bs
@@ -228,13 +228,16 @@ class SampleQueueWrapper(nn.Module):
         x = self.channel_normalizer(x, self.is_input_mono(), self.daw_buffer)
         x = self.resample_sandwich.process_in(x)
         self._forward(x, params)
-        out_popped_n = self.out_queue.pop(self.io_out_buffer)  # TODO(cm): use saturation flag here instead
 
-        # if self.is_queue_saturated and out_popped_n < x.shape[1]:
-        #     log.warning('queue is starved')
+        if self.is_queue_saturated:
+            out_popped_n = self.out_queue.pop(self.io_out_buffer)
+        else:
+            out_popped_n = self.io_out_buffer.size(1)
+            self.io_out_buffer.fill_(0)
 
         x = self.resample_sandwich.process_out(self.io_out_buffer)
         if self.use_debug_mode:
+            assert out_popped_n == self.io_out_buffer.size(1)
             assert x.size(1) == in_n
         x = self.channel_normalizer(x, is_daw_mono, self.daw_buffer)
         return x
@@ -249,7 +252,7 @@ class SampleQueueWrapper(nn.Module):
         self._forward(x, params)
 
         curr_n = 0
-        while self.out_queue.size >= self.io_bs:  # TODO(cm): use saturation flag here instead
+        while self.is_queue_saturated and self.out_queue.size >= self.io_bs:
             out_popped_n = self.out_queue.pop(self.io_out_buffer)
             if self.use_debug_mode:
                 assert out_popped_n == self.io_bs

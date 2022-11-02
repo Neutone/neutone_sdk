@@ -144,7 +144,8 @@ class SampleQueueWrapper(nn.Module):
         """
         Assume you have 2 queues. Every time `io_bs` samples are pushed onto queue 1, the same number of samples must be
         popped from queue 2. Whenever queue 1 contains `model_bs` samples or more, they are popped from queue 1 and
-        pushed onto queue 2.
+        pushed onto queue 2. This happens instantaneously after pushing to queue 1 and before popping from queue 2.
+        A simple non-trivial example is when `io_bs` = 4 and `model_bs` = 7 (saturation_n is 12 not 8 in this case).
 
         This method calculates the minimum number of samples one must wait before popping from queue 2 to guarantee
         that it will never be starved (i.e. you cannot pop `io_bs` samples from queue 2). We call this `saturation_n`

@@ -1,3 +1,4 @@
+import itertools
 import logging
 import math
 import os
@@ -117,24 +118,40 @@ class SampleQueueWrapper(nn.Module):
         return native_buffer_sizes[min_idx]
 
     @staticmethod
+    def _calc_saturation_n(io_bs: int, model_bs: int) -> int:
+        # TODO(cm): this needs to be explained with a diagram
+        lcm = tr.lcm(tr.tensor(io_bs), tr.tensor(model_bs)).item()
+        cycle_len = lcm // io_bs
+        remainders = [(idx * io_bs) % model_bs for idx in range(1, cycle_len + 1)]
+        pop_locs = [0] + [0 if remainders[idx] > remainders[idx - 1] else 1 for idx in range(1, cycle_len)]
+        pop_locs_rev = list(pop_locs)
+        pop_locs_rev.reverse()
+        pop_locs_cumsum = list(itertools.accumulate(pop_locs))
+        pop_locs_rev_cumsum = list(itertools.accumulate(pop_locs_rev))
+        offset = 0
+        for _ in range(cycle_len):
+            if all(pop_locs_cumsum[idx] >= pop_locs_rev_cumsum[idx - offset] for idx in range(offset, cycle_len)):
+                break
+            offset += 1
+        return (offset + 1) * io_bs
+
+    @staticmethod
     def calc_saturation_n(io_bs: int, model_bs: int) -> int:
-        # TODO(cm): simplify and generalize more. There must be a better equation for this?
+        # TODO(cm): document logic behind this
         if model_bs % io_bs == 0:
             return model_bs
         if io_bs % model_bs == 0:
-            return model_bs
-        if io_bs % 2 == 0 and model_bs % (io_bs // 2) == 0:
-            return model_bs
+            return io_bs
         if io_bs < model_bs:
-            return model_bs + io_bs - 1
+            return SampleQueueWrapper._calc_saturation_n(io_bs, model_bs)
         else:  # io_bs > model_bs
             multiplier = io_bs // model_bs
-            return (multiplier * model_bs) + (io_bs % model_bs) + 1
+            n = (multiplier * model_bs) + (io_bs % model_bs)
+            return (n // io_bs + 1) * io_bs
 
     @staticmethod
     def calc_delay_samples(io_bs: int, model_bs: int) -> int:
-        # TODO(cm): simplify and generalize more. There must be a better equation for this?
-        # TODO: incorrect for rare cases like (7, 512), (73, 512)
+        # TODO(cm): document logic behind this
         saturation_n = SampleQueueWrapper.calc_saturation_n(io_bs, model_bs)
         if io_bs < model_bs:
             if saturation_n == model_bs:
@@ -209,7 +226,7 @@ class SampleQueueWrapper(nn.Module):
         x = self.channel_normalizer(x, self.is_input_mono(), self.daw_buffer)
         x = self.resample_sandwich.process_in(x)
         self._forward(x, params)
-        out_popped_n = self.out_queue.pop(self.io_out_buffer)
+        out_popped_n = self.out_queue.pop(self.io_out_buffer)  # TODO(cm): use saturation flag here instead
 
         # if self.is_queue_saturated and out_popped_n < x.shape[1]:
         #     log.warning('queue is starved')
@@ -230,7 +247,7 @@ class SampleQueueWrapper(nn.Module):
         self._forward(x, params)
 
         curr_n = 0
-        while self.out_queue.size >= self.io_bs:
+        while self.out_queue.size >= self.io_bs:  # TODO(cm): use saturation flag here instead
             out_popped_n = self.out_queue.pop(self.io_out_buffer)
             if self.use_debug_mode:
                 assert out_popped_n == self.io_bs
@@ -264,7 +281,7 @@ class SampleQueueWrapper(nn.Module):
 
     @tr.jit.export
     def is_resampling(self) -> bool:
-        return self.daw_sr != self.model_sr
+        return self.resample_sandwich.is_resampling()
 
     @tr.jit.export
     def calc_min_delay_samples(self) -> int:

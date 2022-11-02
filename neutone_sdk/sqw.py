@@ -153,19 +153,7 @@ class SampleQueueWrapper(nn.Module):
     def calc_delay_samples(io_bs: int, model_bs: int) -> int:
         # TODO(cm): document logic behind this
         saturation_n = SampleQueueWrapper.calc_saturation_n(io_bs, model_bs)
-        if io_bs < model_bs:
-            if saturation_n == model_bs:
-                delay = model_bs - io_bs
-            else:
-                delay = saturation_n - (saturation_n % io_bs)
-        elif io_bs > model_bs:
-            if saturation_n == model_bs:
-                delay = 0
-            else:
-                delay = io_bs
-        else:  # io_bs == model_bs
-            delay = 0
-        return delay
+        return saturation_n - io_bs
 
     @staticmethod
     def calc_resampled_buffer_size(orig_sr: int, new_sr: int, orig_bs: int) -> int:

@@ -148,6 +148,7 @@ def delay_test(wrapper: TestModelWrapper,
     wrapper.model_bs = model_bs
     sqw.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs)
     expected_delay = sqw.calc_min_delay_samples()
+    assert expected_delay >= 0
 
     n_samples = expected_delay + (2 * max(daw_bs, model_bs))
     audio_in = tr.rand((2, n_samples))
@@ -167,17 +168,23 @@ def delay_test(wrapper: TestModelWrapper,
     actual_delay_r = tr.nonzero(audio_out[1, :])[0].item()
     assert actual_delay_l == actual_delay_r
     actual_delay = actual_delay_r
-    assert expected_delay == actual_delay, f"expected = {expected_delay}, actual_delay = {actual_delay} | " \
-                                           f"{daw_sr}, {daw_bs}, {model_sr}, {model_bs}"
+    assert expected_delay == actual_delay, (
+        f"expected = {expected_delay}, actual_delay = {actual_delay} | "
+        f"{daw_sr}, {daw_bs}, {model_sr}, {model_bs}"
+    )
 
 
 def test_calc_saturation_n() -> None:
-    random.seed(42)
-    tr.manual_seed(42)
-    io_buffer_sizes = [random.randrange(32, 2048) for _ in range(10)]
-    model_buffer_sizes = [random.randrange(32, 2048) for _ in range(10)]
-    # io_buffer_sizes = list(range(2, 64))
-    # model_buffer_sizes = list(range(2, 64))
+    # random.seed(42)
+    # tr.manual_seed(42)
+    # io_buffer_sizes = [random.randrange(32, 2048) for _ in range(16)]
+    # model_buffer_sizes = [random.randrange(32, 2048) for _ in range(16)]
+
+    io_buffer_sizes = list(range(2, 256))
+    model_buffer_sizes = list(range(2, 256))
+
+    log.info(f"io_buffer_sizes: {io_buffer_sizes}")
+    log.info(f"model_buffer_sizes: {model_buffer_sizes}")
 
     for io_bs, model_bs in tqdm(itertools.product(io_buffer_sizes, model_buffer_sizes)):
         calculated_n = SampleQueueWrapper.calc_saturation_n(io_bs, model_bs)
@@ -197,11 +204,11 @@ def test_calc_min_delay_samples() -> None:
     sqw = SampleQueueWrapper(wrapper)
 
     sampling_rates = [16000, 22050, 32000, 44100, 48000, 88200, 96000]
-    # buffer_sizes = [32, 64, 128, 256, 512, 1024, 2048, 4096]
+    buffer_sizes = [32, 64, 128, 256, 512, 1024, 2048, 4096]
 
-    random.seed(42)
-    tr.manual_seed(42)
-    buffer_sizes = [random.randrange(32, 4096) for _ in range(10)]
+    # random.seed(42)
+    # tr.manual_seed(42)
+    # buffer_sizes = [random.randrange(32, 4096) for _ in range(50)]
 
     log.info(f"Sampling rates: {sampling_rates}")
     log.info(f"Buffer sizes: {buffer_sizes}")
@@ -213,7 +220,3 @@ def test_calc_min_delay_samples() -> None:
         delay_test(wrapper, sqw, daw_sr, daw_bs, model_sr, model_bs)
 
     log.info("No delay inconsistencies found")
-
-
-# test_calc_min_delay_samples()
-test_calc_saturation_n()

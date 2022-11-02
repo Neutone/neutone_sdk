@@ -3,7 +3,7 @@ import logging
 import math
 import os
 import random
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch as tr
 import torch.nn as nn
@@ -93,11 +93,12 @@ def check_saturation_n(io_bs: int, model_bs: int, saturation_n: int) -> bool:
     return True
 
 
-def find_saturation_n(io_bs: int, model_bs: int) -> int:
+def find_saturation_n(io_bs: int, model_bs: int) -> Optional[int]:
     lcm = math.lcm(io_bs, model_bs)
     for n in range(io_bs, lcm + 1, io_bs):
         if check_saturation_n(io_bs, model_bs, n):
             return n
+    return None
 
 
 def check_queue_saturation(io_bs: int, model_bs: int, saturation_n: int) -> bool:

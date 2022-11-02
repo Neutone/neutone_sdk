@@ -1,4 +1,3 @@
-import itertools
 import logging
 import math
 import os
@@ -118,33 +117,48 @@ class SampleQueueWrapper(nn.Module):
         return native_buffer_sizes[min_idx]
 
     @staticmethod
-    def _calc_saturation_n(io_bs: int, model_bs: int) -> int:
-        # TODO(cm): this needs to be explained with a diagram
-        lcm = tr.lcm(tr.tensor(io_bs), tr.tensor(model_bs)).item()
-        cycle_len = lcm // io_bs
-        remainders = [(idx * io_bs) % model_bs for idx in range(1, cycle_len + 1)]
-        pop_locs = [0] + [0 if remainders[idx] > remainders[idx - 1] else 1 for idx in range(1, cycle_len)]
-        pop_locs_rev = list(pop_locs)
-        pop_locs_rev.reverse()
-        pop_locs_cumsum = list(itertools.accumulate(pop_locs))
-        pop_locs_rev_cumsum = list(itertools.accumulate(pop_locs_rev))
+    def _calc_saturation_n_case_3(io_bs: int, model_bs: int) -> int:
+        # TODO(cm): I cannot figure out an elegant formula for this specific case, but I'm sure it must exist
+        # TODO(cm): this needs to be explained with a diagram / blog post
+        io_bs_t = tr.tensor(io_bs)
+        model_bs_t = tr.tensor(model_bs)
+        lcm_t = tr.lcm(io_bs_t, model_bs_t)
+        cycle_len = int(tr.div(lcm_t, io_bs_t, rounding_mode='trunc').item())  # TorchScript requires this casting
+        remainders_shifted = (tr.arange(0, cycle_len, dtype=tr.int) * io_bs_t) % model_bs_t
+        remainders = (tr.arange(1, cycle_len + 1, dtype=tr.int) * io_bs_t) % model_bs_t
+        pop_locs = tr.where(remainders > remainders_shifted, 0, 1)
+        pop_locs_rev = tr.flip(pop_locs, dims=(0,))
+        pop_locs_cumsum = tr.cumsum(pop_locs, dim=0)
+        pop_locs_rev_cumsum = tr.cumsum(pop_locs_rev, dim=0)
         offset = 0
         for _ in range(cycle_len):
-            if all(pop_locs_cumsum[idx] >= pop_locs_rev_cumsum[idx - offset] for idx in range(offset, cycle_len)):
+            pop_locs_rev_cumsum_shifted = tr.zeros_like(pop_locs_rev_cumsum)
+            pop_locs_rev_cumsum_shifted[offset:] = pop_locs_rev_cumsum[0:cycle_len - offset]
+            if tr.all(pop_locs_cumsum >= pop_locs_rev_cumsum_shifted):
                 break
             offset += 1
         return (offset + 1) * io_bs
 
     @staticmethod
     def calc_saturation_n(io_bs: int, model_bs: int) -> int:
+        """
+        Assume you have 2 queues. Every time `io_bs` samples are pushed onto queue 1, the same number of samples must be
+        popped from queue 2. Whenever queue 1 contains `model_bs` samples or more, they are popped from queue 1 and
+        pushed onto queue 2.
+
+        This method calculates the minimum number of samples one must wait before popping from queue 2 to guarantee
+        that it will never be starved (i.e. you cannot pop `io_bs` samples from queue 2). We call this `saturation_n`
+        and it will always be a multiple of `io_bs` (since the best case scenario is you can pop immediately after the
+        first buffer is pushed onto queue 1).
+        """
         # TODO(cm): document logic behind this
-        if model_bs % io_bs == 0:
+        if model_bs % io_bs == 0:  # Case 1
             return model_bs
-        if io_bs % model_bs == 0:
+        if io_bs % model_bs == 0:  # Case 2
             return io_bs
-        if io_bs < model_bs:
-            return SampleQueueWrapper._calc_saturation_n(io_bs, model_bs)
-        else:  # io_bs > model_bs
+        if io_bs < model_bs:  # Case 3
+            return SampleQueueWrapper._calc_saturation_n_case_3(io_bs, model_bs)
+        else:  # io_bs > model_bs, Case 4
             multiplier = io_bs // model_bs
             n = (multiplier * model_bs) + (io_bs % model_bs)
             return (n // io_bs + 1) * io_bs

@@ -57,6 +57,7 @@ class SampleQueueWrapper(nn.Module):
         self.daw_bs = daw_bs
         self.io_bs = daw_bs  # Temp value for typing
         self.model_bs = model_bs
+        self.seen_n = 0
         self.is_queue_saturated = False
         self.saturation_n = None
 
@@ -201,11 +202,13 @@ class SampleQueueWrapper(nn.Module):
 
         resampled_in_n = resampled_x.size(1)
         if self.use_debug_mode:
-            assert resampled_in_n <= self.io_bs
+            assert resampled_in_n == self.io_bs
 
         self.in_queue.push(resampled_x)
-        if self.in_queue.size >= self.saturation_n:
-            self.is_queue_saturated = True
+        if not self.is_queue_saturated:
+            self.seen_n += resampled_in_n
+            if self.seen_n >= self.saturation_n:
+                self.is_queue_saturated = True
 
         while self.in_queue.size >= self.model_bs:
             in_popped_n = self.in_queue.pop(self.model_in_buffer)
@@ -370,6 +373,7 @@ class SampleQueueWrapper(nn.Module):
         self.params_buffer.fill_(0)
         self.io_out_buffer.fill_(0)
         self.bt_out_buffer.fill_(0)
+        self.seen_n = 0
         self.is_queue_saturated = False
 
     @tr.jit.export

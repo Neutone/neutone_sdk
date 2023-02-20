@@ -82,6 +82,8 @@ class NeutoneModel(ABC, nn.Module):
             neutone_param.name: default_param_values[idx]
             for idx, neutone_param in enumerate(self.get_neutone_parameters())
         }
+        # This is required for TorchScript typing when there are no Neutone parameters defined
+        self.remapped_params["__torchscript_typing"] = default_param_values[0]
 
     @abstractmethod
     def get_model_name(self) -> str:

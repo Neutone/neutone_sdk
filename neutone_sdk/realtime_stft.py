@@ -75,11 +75,14 @@ class RealtimeSTFT(nn.Module):
 
         # Internal buffers
         self.in_buf = None
+        self.in_buf_tmp = None
         self.stft_mag_buf = None
         self.mag_buf = None
+        self.mag_buf_tmp = None
         self.spec_out_buf = None
         self.stft_phase_buf = None
         self.phase_buf = None
+        self.phase_buf_tmp = None
         self.out_frames_buf = None
         self.out_buf = None
 
@@ -103,6 +106,7 @@ class RealtimeSTFT(nn.Module):
         self.register_buffer("fade_down", fade_down, persistent=False)
         zero_phase = tr.zeros(self.model_io_shape)
         self.register_buffer("zero_phase", zero_phase, persistent=False)
+        self.ten_constant = tr.tensor(10.0)
 
     def _set_derived_params(self) -> None:
         self.io_n_frames = self.io_n_samples // self.hop_len
@@ -136,14 +140,17 @@ class RealtimeSTFT(nn.Module):
             (self.io_n_ch, self.in_buf_n_frames * self.hop_len),
             self.eps,
         )
+        self.in_buf_tmp = tr.clone(self.in_buf)
 
         self.stft_mag_buf = tr.full(self.stft_out_shape, self.eps)
         self.mag_buf = tr.full(self.model_io_shape, self.eps)
+        self.mag_buf_tmp = tr.clone(self.mag_buf)
         # Required to allow inplace operations after the encoder
         self.spec_out_buf = tr.clone(self.mag_buf)
 
         self.stft_phase_buf = tr.zeros(self.stft_out_shape)
         self.phase_buf = tr.zeros(self.model_io_shape)
+        self.phase_buf_tmp = tr.clone(self.phase_buf)
 
         self.out_frames_buf = tr.full(
             (self.io_n_ch, self.n_bins, self.istft_in_n_frames),
@@ -160,12 +167,12 @@ class RealtimeSTFT(nn.Module):
         tr.log10(spec, out=spec)
 
     def _unlogarithmize_spec(self, spec: Tensor) -> None:
-        tr.pow(10, spec, out=spec)  # TODO: memory
+        tr.pow(self.ten_constant, spec, out=spec)
         tr.clamp(spec, min=self.eps, out=spec)
 
     def _update_mag_or_phase_buffers(
-        self, stft_out_buf: Tensor, frames_buf: Tensor
-    ) -> Tensor:
+        self, stft_out_buf: Tensor, frames_buf: Tensor, frames_buf_tmp: Tensor
+    ) -> None:
         if self.center:
             # Remove overlap frames we have computed before
             frames = stft_out_buf[:, :, self.overlap_n_frames :]
@@ -183,10 +190,10 @@ class RealtimeSTFT(nn.Module):
         else:
             new_frames = stft_out_buf[:, :, -self.io_n_frames :]
 
-        # Shift buffer left and insert new frames
-        frames_buf = tr.roll(frames_buf, -self.io_n_frames, dims=2)  # TODO: memory
+        # Shift buffer left and insert new frames (this way because tr.roll allocates memory dynamically)
+        frames_buf_tmp[:, :, :-self.io_n_frames] = frames_buf[:, :, self.io_n_frames:]
+        frames_buf[:, :, :-self.io_n_frames] = frames_buf_tmp[:, :, :-self.io_n_frames]
         frames_buf[:, :, -self.io_n_frames:] = new_frames
-        return frames_buf
 
     @tr.jit.export
     def set_buffer_size(self, io_n_samples: int) -> None:
@@ -237,7 +244,6 @@ class RealtimeSTFT(nn.Module):
             assert audio.size(0) == self.io_n_ch
             assert audio.size(1) >= self.n_fft
             assert audio.size(1) % self.hop_len == 0
-        # TODO(cm): allow pad_mode to be selected
         spec = tr.stft(
             audio,
             n_fft=self.n_fft,
@@ -265,10 +271,12 @@ class RealtimeSTFT(nn.Module):
     def audio_to_spec(self, audio: Tensor) -> Tensor:
         if self.use_debug_mode:
             assert audio.shape == (self.io_n_ch, self.io_n_samples)
-        # Shift buffer left and insert audio chunk
-        self.in_buf = tr.roll(self.in_buf, -self.io_n_samples, dims=1)  # TODO: memory
-        self.in_buf[:, -self.io_n_samples :] = audio
+        # Shift buffer left and insert audio chunk (this way because tr.roll allocates memory dynamically)
+        self.in_buf_tmp[:, :-self.io_n_samples] = self.in_buf[:, self.io_n_samples:]
+        self.in_buf[:, :-self.io_n_samples] = self.in_buf_tmp[:, :-self.io_n_samples]
+        self.in_buf[:, -self.io_n_samples:] = audio
 
+        # TODO(cm): allow pad_mode to be selected
         complex_frames = tr.stft(
             self.in_buf,
             n_fft=self.n_fft,
@@ -288,18 +296,14 @@ class RealtimeSTFT(nn.Module):
             if self.ensure_pos_spec:
                 self.stft_mag_buf -= self.log10_eps
 
-        self.mag_buf = self._update_mag_or_phase_buffers(
-            self.stft_mag_buf, self.mag_buf
-        )
+        self._update_mag_or_phase_buffers(self.stft_mag_buf, self.mag_buf, self.mag_buf_tmp)
 
         if self.use_phase_info:
             if self.power is None:
                 self.stft_phase_buf = complex_frames.imag
             else:
                 tr.angle(complex_frames, out=self.stft_phase_buf)
-            self.phase_buf = self._update_mag_or_phase_buffers(
-                self.stft_phase_buf, self.phase_buf
-            )
+            self._update_mag_or_phase_buffers(self.stft_phase_buf, self.phase_buf, self.phase_buf_tmp)
 
         # Prevent future inplace operations from mutating self.mag_buf
         self.spec_out_buf[:, :] = self.mag_buf

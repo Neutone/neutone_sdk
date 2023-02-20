@@ -7,6 +7,7 @@ from typing import Dict, List
 import torch as tr
 import torch.nn as nn
 from torch import Tensor
+from torchaudio.transforms import MelScale
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.realtime_stft import RealtimeSTFT
@@ -23,24 +24,25 @@ class SpectralFilter(nn.Module):
         Creates a spectral notch filter, where the bandwidth of the filter also changes as the center frequency changes.
         """
         super().__init__()
-        self.half_constant = tr.tensor(0.5)
+        self.base_constant = tr.tensor(1025 / tr.e)  # Used to scale the controls somewhat to the STFT
+        self.half_constant = tr.tensor(0.5)  # Prevent dynamic memory allocations
 
     def _map_0to1_val_to_log_bin_idx(self, val: Tensor, max_bin: int) -> int:
         """
         Maps a float tensor between [0.0, 1.0] to an integer between [0, max_bins] with the assumption that the
         bin indices follow a logarithmic spacing.
         """
-        idx = (tr.exp(val) - 1.0) / (tr.e - 1.0) * max_bin
+        idx = (tr.pow(self.base_constant, val) - 1.0) / (self.base_constant - 1.0) * max_bin
         idx = int(tr.clip(tr.round(idx), 0, max_bin))
         return idx
 
     def forward(self, x: Tensor, center: Tensor, width: Tensor, amount: Tensor) -> Tensor:
         """
-        Filters a positive valued log-magnitude spectrogram using a rectangle with controllable center, width,
+        Filters a positive valued magnitude spectrogram using a rectangle with controllable center, width,
         and amount of attenuation.
 
         Args:
-            x: a log-magnitude spectrogram with shape (n_ch, n_bins, n_frames)
+            x: a magnitude spectrogram with shape (n_ch, n_bins, n_frames)
             center: 1D control value between [0.0, 1.0] for the center frequency of the filter.
             width: 1D control value between [0.0, 1.0] for the bandwidth of the filter.
             amount: 1D control value between [0.0, 1.0] for the amount of attenuation.
@@ -48,17 +50,15 @@ class SpectralFilter(nn.Module):
         if amount == 0.0:
             return x
         n_bins = x.size(1)  # Figure out how many bins we have to work with
-        center_bin = self._map_0to1_val_to_log_bin_idx(center, n_bins - 1)  # Find the center bin
-        width_n_bins = self._map_0to1_val_to_log_bin_idx(width, n_bins)  # Find the width in no. of bins
-        if width_n_bins == 0:
-            return x
         # Find the lowest freq bin
-        width_center = self._map_0to1_val_to_log_bin_idx(self.half_constant, width_n_bins)
-        lo_bin_idx = center_bin - width_center
+        lo_bin_idx = self._map_0to1_val_to_log_bin_idx(center * (1.0 - width), n_bins - 1)
         lo_bin_idx = max(0, lo_bin_idx)
         # Find the highest freq bin
-        hi_bin_idx = center_bin + (width_n_bins - width_center)
+        hi_bin_idx = self._map_0to1_val_to_log_bin_idx(center + ((1.0 - center) * width), n_bins - 1)
         hi_bin_idx = min(n_bins - 1, hi_bin_idx)
+        # If the filter has 0 width, we don't need to do anything
+        if hi_bin_idx - lo_bin_idx == 0:
+            return x
         # Apply filter
         x[:, lo_bin_idx:hi_bin_idx, :] *= (1.0 - amount)
         return x
@@ -95,7 +95,7 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
             n_fft=n_fft,
             hop_len=hop_len,
             power=1.0,             # Ensures an energy spectrogram
-            logarithmize=True,     # Ensures a log-magnitude spectrogram
+            logarithmize=False,    # We don't need a log-magnitude spectrogram for this filter
             ensure_pos_spec=True,  # Ensures a positive-valued spectrogram
             use_phase_info=True,   # Keep the phase information for the inverse STFT
             fade_n_samples=fade_n_samples,
@@ -140,8 +140,8 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter("center", "center frequency of the filter", default_value=0.5),
-            NeutoneParameter("width", "width of the filter", default_value=0.5),
-            NeutoneParameter("amount", "spectral attenuation %", default_value=0.6),
+            NeutoneParameter("width", "width of the filter", default_value=0.25),
+            NeutoneParameter("amount", "spectral attenuation amount", default_value=0.6),
         ]
 
     @tr.jit.export

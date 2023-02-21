@@ -75,28 +75,32 @@ Assume we have the following PyTorch model. Parameters will be covered later on,
 
 ```python
 class ClipperModel(nn.Module):
-    def forward(self, x: Tensor, min: float, max: float, gain: float) -> Tensor:
-        return torch.clip(x, min=min*gain, max=max*gain)
+    def forward(self, x: Tensor, min_val: float, max_val: float, gain: float) -> Tensor:
+        return torch.clip(x, min=min_val * gain, max=max_val * gain)
 ```
 
 To run this inside the VST the simplest wrapper we can write is by subclassing the WaveformToWaveformBase baseclass.
 ```python
 class ClipperModelWrapper(WaveformToWaveformBase):
+    @torch.jit.export  
     def is_input_mono(self) -> bool:
         return False
-
+    
+    @torch.jit.export
     def is_output_mono(self) -> bool:
         return False
-        
+    
+    @torch.jit.export
     def get_native_sample_rates(self) -> List[int]:
         return []  # Supports all sample rates
-              
+    
+    @torch.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
         return []  # Supports all buffer sizes
 
-    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor] = None) -> Tensor:
+    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         # ... Parameter unwrap logic
-        x = self.model.forward(x, min, max, gain)
+        x = self.model.forward(x, min_val, max_val, gain)
         return x
  ```
 
@@ -119,16 +123,14 @@ For models that can use conditioning signals we currently provide four configura
 class ClipperModelWrapper(WaveformToWaveformBase):
     ...
     
-    def get_parameters(self) -> List[Parameter]:
-        return [Parameter(name="min", description="min clip threshold", default_value=0.5),
-                Parameter(name="max", description="max clip threshold", default_value=1.0),
-                Parameter(name="gain", description="scale clip threshold", default_value=1.0)]
+    def get_neutone_parameters(self) -> List[NeutoneParameter]:
+        return [NeutoneParameter(name="min", description="min clip threshold", default_value=0.5),
+                NeutoneParameter(name="max", description="max clip threshold", default_value=1.0),
+                NeutoneParameter(name="gain", description="scale clip threshold", default_value=1.0)]
          
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
-        min = params["min"]
-        max = params["max"]
-        gain = params["gain"]
-        x = self.model.forward(x, min, max, gain)
+        min_val, max_val, gain = params["min"], params["max"], params["gain"]
+        x = self.model.forward(x, min_val, max_val, gain)
         return x
 ```
 

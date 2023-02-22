@@ -7,7 +7,6 @@ from typing import Dict, List
 import torch as tr
 import torch.nn as nn
 from torch import Tensor
-from torchaudio.transforms import MelScale
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.realtime_stft import RealtimeSTFT
@@ -183,9 +182,9 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
 
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         center, width, amount = params["center"], params["width"], params["amount"]
-        x = self.stft.audio_to_spec(x)  # Convert the audio to a spectrogram
+        x = self.stft.audio_to_spec(x)  # Convert the audio to a spectrogram (n_ch, n_bins, n_frames)
         x = self.model.forward(x, center, width, amount)  # Apply the spectral filter and receive an altered spectrogram
-        x = self.stft.spec_to_audio(x)  # Convert the filtered spectrogram back to audio
+        x = self.stft.spec_to_audio(x)  # Convert the filtered spectrogram back to audio (n_ch, n_samples)
         return x
 
 

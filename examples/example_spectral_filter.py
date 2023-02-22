@@ -7,7 +7,6 @@ from typing import Dict, List
 import torch as tr
 import torch.nn as nn
 from torch import Tensor
-from torchaudio.transforms import MelScale
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.realtime_stft import RealtimeSTFT

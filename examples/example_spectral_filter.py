@@ -37,7 +37,7 @@ class SpectralFilter(nn.Module):
 
     def forward(self, x: Tensor, center: Tensor, width: Tensor, amount: Tensor) -> Tensor:
         """
-        Filters a positive valued magnitude spectrogram using a rectangle with controllable center, width,
+        Filters a positive valued magnitude spectrogram using a notch filter with controllable center, width,
         and amount of attenuation.
 
         Args:
@@ -49,6 +49,8 @@ class SpectralFilter(nn.Module):
         if amount == 0.0:
             return x
         n_bins = x.size(1)  # Figure out how many bins we have to work with
+        # Find the center freq bin
+        center_bin_idx = self._map_0to1_val_to_log_bin_idx(center, n_bins - 1)
         # Find the lowest freq bin
         lo_bin_idx = self._map_0to1_val_to_log_bin_idx(center * (1.0 - width), n_bins - 1)
         lo_bin_idx = max(0, lo_bin_idx)
@@ -58,8 +60,20 @@ class SpectralFilter(nn.Module):
         # If the filter has 0 width, we don't need to do anything
         if hi_bin_idx - lo_bin_idx == 0:
             return x
-        # Apply filter
-        x[:, lo_bin_idx:hi_bin_idx, :] *= (1.0 - amount)
+        # Filter the low bins of the notch
+        if center_bin_idx - lo_bin_idx > 0:
+            # Using a linear spacing here is not ideal since the frequency bins are not linearly spaced,
+            # but this is just an example
+            lo_filter = 1.0 - (tr.linspace(0.0, 1.0, center_bin_idx - lo_bin_idx + 2)[1:-1] * amount)
+            lo_filter = lo_filter.view(1, -1, 1)
+            x[:, lo_bin_idx:center_bin_idx, :] *= lo_filter
+        # Filter the high bins of the notch
+        if hi_bin_idx - center_bin_idx > 0:
+            # Using a linear spacing here is not ideal since the frequency bins are not linearly spaced,
+            # but this is just an example
+            hi_filter = 1.0 - (tr.linspace(1.0, 0.0, hi_bin_idx - center_bin_idx + 1)[:-1] * amount)
+            hi_filter = hi_filter.view(1, -1, 1)
+            x[:, center_bin_idx:hi_bin_idx, :] *= hi_filter
         return x
 
 
@@ -139,8 +153,8 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter("center", "center frequency of the filter", default_value=0.5),
-            NeutoneParameter("width", "width of the filter", default_value=0.25),
-            NeutoneParameter("amount", "spectral attenuation amount", default_value=0.6),
+            NeutoneParameter("width", "width of the filter", default_value=0.4),
+            NeutoneParameter("amount", "spectral attenuation amount", default_value=0.75),
         ]
 
     @tr.jit.export

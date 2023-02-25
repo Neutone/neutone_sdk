@@ -10,7 +10,6 @@ from torch.autograd.profiler import record_function
 from torch.profiler import profile
 from tqdm import tqdm
 
-from examples.example_spectral_filter import SpectralFilter, SpectralFilterWrapper
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter, SampleQueueWrapper, constants
 from neutone_sdk.utils import model_to_torchscript
 

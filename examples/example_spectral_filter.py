@@ -84,7 +84,7 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
                  io_n_ch: int = 2,
                  n_fft: int = 2048,
                  hop_len: int = 512,
-                 fade_n_samples: int = 32,
+                 fade_n_samples: int = 256,  # Cross-fade for half the hop_len to ensure no buzzing in the wet audio
                  use_debug_mode: bool = True) -> None:
         """
         Creates a modified WaveformToWaveformBase wrapper that can be used to create spectral neural audio effects.

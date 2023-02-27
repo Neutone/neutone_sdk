@@ -122,7 +122,7 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
             log.info(f"STFT delay = {self.calc_min_delay_samples()}")
 
     def get_model_name(self) -> str:
-        return "spectral-distortion"
+        return "spectral.filter"
 
     def get_model_authors(self) -> List[str]:
         return ["Christopher Mitcheltree"]

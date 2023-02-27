@@ -286,7 +286,8 @@ class SampleQueueWrapper(nn.Module):
     ) -> int:
         # Sample rate
         if model_sr is not None:
-            assert len(self.get_native_sample_rates()) == 0 or model_sr in self.get_native_sample_rates()
+            if self.use_debug_mode:
+                assert len(self.get_native_sample_rates()) == 0 or model_sr in self.get_native_sample_rates()
         else:
             model_sr = self.select_best_model_sr(daw_sr, self.get_native_sample_rates())
 
@@ -299,7 +300,8 @@ class SampleQueueWrapper(nn.Module):
 
         # Buffer size
         if model_bs is not None:
-            assert len(self.get_native_buffer_sizes()) == 0 or model_bs in self.get_native_buffer_sizes()
+            if self.use_debug_mode:
+                assert len(self.get_native_buffer_sizes()) == 0 or model_bs in self.get_native_buffer_sizes()
         else:
             model_bs = self.select_best_model_buffer_size(io_bs, self.get_native_buffer_sizes())
 

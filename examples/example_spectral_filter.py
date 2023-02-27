@@ -84,7 +84,7 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
                  io_n_ch: int = 2,
                  n_fft: int = 2048,
                  hop_len: int = 512,
-                 fade_n_samples: int = 256,  # Cross-fade for half the hop_len to ensure no buzzing in the wet audio
+                 fade_n_samples: int = 384,  # Cross-fade for 3/4 of the hop_len to ensure no buzzing in the wet audio
                  use_debug_mode: bool = True) -> None:
         """
         Creates a modified WaveformToWaveformBase wrapper that can be used to create spectral neural audio effects.
@@ -152,9 +152,9 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
-            NeutoneParameter("center", "center frequency of the filter", default_value=0.5),
-            NeutoneParameter("width", "width of the filter", default_value=0.4),
-            NeutoneParameter("amount", "spectral attenuation amount", default_value=0.75),
+            NeutoneParameter("center", "center frequency of the filter", default_value=0.3),
+            NeutoneParameter("width", "width of the filter", default_value=0.5),
+            NeutoneParameter("amount", "spectral attenuation amount", default_value=0.9),
         ]
 
     @tr.jit.export

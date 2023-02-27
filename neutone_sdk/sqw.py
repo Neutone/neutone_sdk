@@ -57,6 +57,7 @@ class SampleQueueWrapper(nn.Module):
         self.daw_bs = daw_bs
         self.io_bs = daw_bs  # Temp value for typing
         self.model_bs = model_bs
+        self.seen_n = 0
         self.is_queue_saturated = False
         self.saturation_n = None
 
@@ -117,38 +118,58 @@ class SampleQueueWrapper(nn.Module):
         return native_buffer_sizes[min_idx]
 
     @staticmethod
+    def _calc_saturation_n_case_3(io_bs: int, model_bs: int) -> int:
+        # TODO(cm): I cannot figure out an elegant formula for this specific case, but I'm sure it must exist
+        # TODO(cm): this needs to be explained with a diagram / blog post
+        io_bs_t = tr.tensor(io_bs)
+        model_bs_t = tr.tensor(model_bs)
+        lcm_t = tr.lcm(io_bs_t, model_bs_t)
+        cycle_len = int(tr.div(lcm_t, io_bs_t, rounding_mode='trunc').item())  # TorchScript requires this casting
+        remainders_shifted = (tr.arange(0, cycle_len, dtype=tr.int) * io_bs_t) % model_bs_t
+        remainders = (tr.arange(1, cycle_len + 1, dtype=tr.int) * io_bs_t) % model_bs_t
+        pop_locs = tr.where(remainders > remainders_shifted, 0, 1)
+        pop_locs_rev = tr.flip(pop_locs, dims=(0,))
+        pop_locs_cumsum = tr.cumsum(pop_locs, dim=0)
+        pop_locs_rev_cumsum = tr.cumsum(pop_locs_rev, dim=0)
+        offset = 0
+        for _ in range(cycle_len):
+            pop_locs_rev_cumsum_shifted = tr.zeros_like(pop_locs_rev_cumsum)
+            pop_locs_rev_cumsum_shifted[offset:] = pop_locs_rev_cumsum[0:cycle_len - offset]
+            if tr.all(pop_locs_cumsum >= pop_locs_rev_cumsum_shifted):
+                break
+            offset += 1
+        return (offset + 1) * io_bs
+
+    @staticmethod
     def calc_saturation_n(io_bs: int, model_bs: int) -> int:
-        # TODO(cm): simplify and generalize more. There must be a better equation for this?
-        if model_bs % io_bs == 0:
+        """
+        Assume you have 2 queues. Every time `io_bs` samples are pushed onto queue 1, the same number of samples must be
+        popped from queue 2. Whenever queue 1 contains `model_bs` samples or more, they are popped from queue 1 and
+        pushed onto queue 2. This happens instantaneously after pushing to queue 1 and before popping from queue 2.
+        A simple non-trivial example is when `io_bs` = 4 and `model_bs` = 7 (saturation_n is 12 not 8 in this case).
+
+        This method calculates the minimum number of samples one must wait before popping from queue 2 to guarantee
+        that it will never be starved (i.e. you cannot pop `io_bs` samples from queue 2). We call this `saturation_n`
+        and it will always be a multiple of `io_bs` (since the best case scenario is you can pop immediately after the
+        first buffer is pushed onto queue 1).
+        """
+        # TODO(cm): document logic behind this
+        if model_bs % io_bs == 0:  # Case 1
             return model_bs
-        if io_bs % model_bs == 0:
-            return model_bs
-        if io_bs % 2 == 0 and model_bs % (io_bs // 2) == 0:
-            return model_bs
-        if io_bs < model_bs:
-            return model_bs + io_bs - 1
-        else:  # io_bs > model_bs
+        if io_bs % model_bs == 0:  # Case 2
+            return io_bs
+        if io_bs < model_bs:  # Case 3
+            return SampleQueueWrapper._calc_saturation_n_case_3(io_bs, model_bs)
+        else:  # io_bs > model_bs, Case 4
             multiplier = io_bs // model_bs
-            return (multiplier * model_bs) + (io_bs % model_bs) + 1
+            n = (multiplier * model_bs) + (io_bs % model_bs)
+            return (n // io_bs + 1) * io_bs
 
     @staticmethod
     def calc_delay_samples(io_bs: int, model_bs: int) -> int:
-        # TODO(cm): simplify and generalize more. There must be a better equation for this?
-        # TODO: incorrect for rare cases like (7, 512), (73, 512)
+        # TODO(cm): document logic behind this
         saturation_n = SampleQueueWrapper.calc_saturation_n(io_bs, model_bs)
-        if io_bs < model_bs:
-            if saturation_n == model_bs:
-                delay = model_bs - io_bs
-            else:
-                delay = saturation_n - (saturation_n % io_bs)
-        elif io_bs > model_bs:
-            if saturation_n == model_bs:
-                delay = 0
-            else:
-                delay = io_bs
-        else:  # io_bs == model_bs
-            delay = 0
-        return delay
+        return saturation_n - io_bs
 
     @staticmethod
     def calc_resampled_buffer_size(orig_sr: int, new_sr: int, orig_bs: int) -> int:
@@ -181,13 +202,15 @@ class SampleQueueWrapper(nn.Module):
 
         resampled_in_n = resampled_x.size(1)
         if self.use_debug_mode:
-            assert resampled_in_n <= self.io_bs
+            assert resampled_in_n == self.io_bs
 
         self.in_queue.push(resampled_x)
-        if self.in_queue.size >= self.saturation_n:
-            self.is_queue_saturated = True
+        if not self.is_queue_saturated:
+            self.seen_n += resampled_in_n
+            if self.seen_n >= self.saturation_n:
+                self.is_queue_saturated = True
 
-        while self.is_queue_saturated and self.in_queue.size >= self.model_bs:
+        while self.in_queue.size >= self.model_bs:
             in_popped_n = self.in_queue.pop(self.model_in_buffer)
             if self.use_debug_mode:
                 assert in_popped_n == self.model_bs
@@ -209,13 +232,16 @@ class SampleQueueWrapper(nn.Module):
         x = self.channel_normalizer(x, self.is_input_mono(), self.daw_buffer)
         x = self.resample_sandwich.process_in(x)
         self._forward(x, params)
-        out_popped_n = self.out_queue.pop(self.io_out_buffer)
 
-        # if self.is_queue_saturated and out_popped_n < x.shape[1]:
-        #     log.warning('queue is starved')
+        if self.is_queue_saturated:
+            out_popped_n = self.out_queue.pop(self.io_out_buffer)
+        else:
+            out_popped_n = self.io_out_buffer.size(1)
+            self.io_out_buffer.fill_(0)
 
         x = self.resample_sandwich.process_out(self.io_out_buffer)
         if self.use_debug_mode:
+            assert out_popped_n == self.io_out_buffer.size(1)
             assert x.size(1) == in_n
         x = self.channel_normalizer(x, is_daw_mono, self.daw_buffer)
         return x
@@ -230,7 +256,7 @@ class SampleQueueWrapper(nn.Module):
         self._forward(x, params)
 
         curr_n = 0
-        while self.out_queue.size >= self.io_bs:
+        while self.is_queue_saturated and self.out_queue.size >= self.io_bs:
             out_popped_n = self.out_queue.pop(self.io_out_buffer)
             if self.use_debug_mode:
                 assert out_popped_n == self.io_bs
@@ -264,7 +290,7 @@ class SampleQueueWrapper(nn.Module):
 
     @tr.jit.export
     def is_resampling(self) -> bool:
-        return self.daw_sr != self.model_sr
+        return self.resample_sandwich.is_resampling()
 
     @tr.jit.export
     def calc_min_delay_samples(self) -> int:
@@ -347,6 +373,7 @@ class SampleQueueWrapper(nn.Module):
         self.params_buffer.fill_(0)
         self.io_out_buffer.fill_(0)
         self.bt_out_buffer.fill_(0)
+        self.seen_n = 0
         self.is_queue_saturated = False
 
     @tr.jit.export

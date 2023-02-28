@@ -1,10 +1,6 @@
-"""
-Code based off https://github.com/csteinmetz1/steerable-nafx/blob/main/steerable-nafx.ipynb
-"""
-
 import logging
 import os
-from typing import Optional, Callable, List
+from typing import Optional, List
 
 import torch as tr
 from torch import Tensor
@@ -33,6 +29,53 @@ def causal_crop(x: Tensor, length: int) -> Tensor:
     return x
 
 
+# TODO(cm): optimize for TorchScript
+class PaddingCached(nn.Module):
+    """Cached padding for cached convolutions."""
+    def __init__(self, n_ch: int, padding: int) -> None:
+        super().__init__()
+        self.n_ch = n_ch
+        self.padding = padding
+        self.register_buffer("pad_buf", tr.zeros((1, n_ch, padding)))
+
+    def forward(self, x: Tensor) -> Tensor:
+        assert x.ndim == 3  # (batch_size, in_ch, samples)
+        bs = x.size(0)
+        if bs > self.pad_buf.size(0):  # Perform resizing once if batch size is not 1
+            self.pad_buf = self.pad_buf.repeat(bs, 1, 1)
+        x = tr.cat([self.pad_buf, x], dim=-1)  # concat input signal to the cache
+        self.pad_buf = x[..., -self.padding:]  # discard old cache
+        return x
+
+
+class Conv1dCached(nn.Module):  # Conv1d with cache
+    """Cached causal convolution for streaming."""
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 kernel_size: int,
+                 stride: int,
+                 padding: int = 0,
+                 dilation: int = 1,
+                 bias: bool = True) -> None:
+        super().__init__()
+        assert padding == 0  # We include padding in the constructor to match the Conv1d constructor
+        padding = (kernel_size - 1) * dilation
+        self.pad = PaddingCached(in_channels, padding)
+        self.conv = nn.Conv1d(in_channels,
+                              out_channels,
+                              (kernel_size,),
+                              (stride,),
+                              padding=0,
+                              dilation=(dilation,),
+                              bias=bias)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.pad(x)  # get (cached input + current input)
+        x = self.conv(x)
+        return x
+
+
 class FiLM(nn.Module):
     def __init__(self,
                  cond_dim: int,  # dim of conditioning input
@@ -48,8 +91,8 @@ class FiLM(nn.Module):
     def forward(self, x: Tensor, cond: Tensor) -> Tensor:
         cond = self.adaptor(cond)
         g, b = tr.chunk(cond, 2, dim=-1)
-        g = g[:, :, None]
-        b = b[:, :, None]
+        g = g.unsqueeze(-1)
+        b = b.unsqueeze(-1)
         if self.use_bn:
             x = self.bn(x)  # Apply batchnorm without affine
         x = (x * g) + b  # Then apply conditional affine
@@ -70,7 +113,8 @@ class TCNBlock(nn.Module):
                  use_res: bool = True,
                  cond_dim: int = 0,
                  use_film_bn: bool = True,
-                 crop_fn: Callable[[Tensor, int], Tensor] = causal_crop) -> None:
+                 is_causal: bool = True,
+                 is_cached: bool = False) -> None:
         super().__init__()
         self.in_ch = in_ch
         self.out_ch = out_ch
@@ -83,10 +127,21 @@ class TCNBlock(nn.Module):
         self.use_res = use_res
         self.cond_dim = cond_dim
         self.use_film_bn = use_film_bn
-        self.crop_fn = crop_fn
+        self.is_causal = is_causal
+        self.is_cached = is_cached
+        if is_causal:
+            assert padding == 0, "If the TCN is causal, padding must be 0"
+            self.crop_fn = causal_crop
+        else:
+            self.crop_fn = center_crop
+        if is_cached:
+            assert is_causal, "If the TCN is streaming, it must be causal"
+            self.conv_cls = Conv1dCached
+        else:
+            self.conv_cls = nn.Conv1d
 
         if padding is None:
-            padding = ((kernel_size - 1) // 2) * dilation
+            padding = kernel_size // 2 * dilation
             log.debug(f"Setting padding automatically to {padding} samples")
         self.padding = padding
 
@@ -99,13 +154,13 @@ class TCNBlock(nn.Module):
         if use_act:
             self.act = nn.PReLU(out_ch)
 
-        self.conv = nn.Conv1d(
+        self.conv = self.conv_cls(
             in_ch,
             out_ch,
-            (kernel_size,),
-            stride=(stride,),
+            kernel_size,
+            stride=stride,
             padding=padding,
-            dilation=(dilation,),
+            dilation=dilation,
             bias=True,
         )
         self.res = None
@@ -120,6 +175,7 @@ class TCNBlock(nn.Module):
         return self.cond_dim > 0
 
     def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:
+        assert x.ndim == 3  # (batch_size, in_ch, samples)
         x_in = x
         if self.ln is not None:
             assert x.size(1) == self.in_ch
@@ -152,7 +208,8 @@ class TCN(nn.Module):
                  use_res: bool = True,
                  cond_dim: int = 0,
                  use_film_bn: bool = False,
-                 crop_fn: Callable[[Tensor, int], Tensor] = causal_crop) -> None:
+                 is_causal: bool = True,
+                 is_cached: bool = False) -> None:
         super().__init__()
         self.out_channels = out_channels
         self.in_ch = in_ch
@@ -165,8 +222,15 @@ class TCN(nn.Module):
         self.use_res = use_res
         self.cond_dim = cond_dim
         self.use_film_bn = use_film_bn
-        self.crop_fn = crop_fn
-        # TODO(cm): padding warning
+        self.is_causal = is_causal
+        self.is_cached = is_cached
+        if is_causal:
+            assert padding == 0, "If the TCN is causal, padding must be 0"
+            self.crop_fn = causal_crop
+        else:
+            self.crop_fn = center_crop
+        if is_cached:
+            assert is_causal, "If the TCN is streaming, it must be causal"
 
         self.n_blocks = len(out_channels)
         if dilations is None:
@@ -211,7 +275,8 @@ class TCN(nn.Module):
                 use_res,
                 cond_dim,
                 use_film_bn,
-                crop_fn
+                is_causal,
+                is_cached
             ))
 
     def is_conditional(self) -> bool:
@@ -234,3 +299,15 @@ class TCN(nn.Module):
         for dil in self.dilations[1:]:
             rf = rf + ((self.kernel_size - 1) * dil)
         return rf
+
+
+if __name__ == '__main__':
+    out_channels = [8] * 4
+    tcn = TCN(out_channels, cond_dim=3, padding=0, is_causal=True, is_cached=True)
+    log.info(tcn.calc_receptive_field())
+    audio = tr.rand((1, 1, 65536))
+    cond = tr.rand((1, 3))
+    # cond = None
+    out = tcn.forward(audio, cond)
+    out = tcn.forward(audio, cond)
+    log.info(out.shape)

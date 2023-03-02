@@ -133,5 +133,5 @@ if __name__ == "__main__":
             soundpairs.append(AudioSamplePair(input_sample, rendered_sample))
 
     save_neutone_model(
-        wrapper, root_dir, freeze=True, dump_samples=True, submission=True, audio_sample_pairs=soundpairs
+        wrapper, root_dir, freeze=False, dump_samples=True, submission=True, audio_sample_pairs=soundpairs
     )

@@ -55,7 +55,7 @@ def model_to_torchscript(
 def save_neutone_model(
     model: "WaveformToWaveformBase",
     root_dir: Path,
-    freeze: bool = True,
+    freeze: bool = False,
     optimize: bool = False,
     dump_samples: bool = False,
     submission: bool = False,

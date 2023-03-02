@@ -81,7 +81,6 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
     def __init__(self,
                  spectral_filter_model: nn.Module,
                  model_io_n_frames: int = 16,
-                 io_n_ch: int = 2,
                  n_fft: int = 2048,
                  hop_len: int = 512,
                  fade_n_samples: int = 384,  # Cross-fade for 3/4 of the hop_len to ensure no buzzing in the wet audio
@@ -93,18 +92,17 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
         Args:
             spectral_filter_model: a spectral model, in this example a filter (could be replaced with anything).
             model_io_n_frames: the number of STFT frames the spectral model expects as input and output.
-            io_n_ch: the number of channels the spectral model expects as input and output (should be 1 or 2).
             n_fft: n_fft to use for the STFT.
             hop_len: hop_len in samples to use for the STFT.
             fade_n_samples: no. of samples to crossfade between output buffers of audio after the inverse STFT. Adds a
                             slight delay, but prevents clicks and pops in the output audio.
             use_debug_mode: makes debugging easier, is turned off automatically before the model is exported.
         """
-        self.io_n_ch = io_n_ch
         super().__init__(spectral_filter_model, use_debug_mode)
+        in_ch = 1 if self.is_input_mono() else 2
         self.stft = RealtimeSTFT(
             model_io_n_frames=model_io_n_frames,
-            io_n_ch=io_n_ch,
+            io_n_ch=in_ch,
             n_fft=n_fft,
             hop_len=hop_len,
             power=1.0,             # Ensures an energy spectrogram
@@ -116,7 +114,6 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
         )
         self.stft.set_buffer_size(self.stft.calc_min_buffer_size())
         if use_debug_mode:
-            assert 1 <= self.io_n_ch <= 2
             log.info(f"Supported buffer sizes = {self.get_native_buffer_sizes()}")
             log.info(f"Supported sample rate = {self.get_native_sample_rates()}")
             log.info(f"STFT delay = {self.calc_min_delay_samples()}")
@@ -159,11 +156,11 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
 
     @tr.jit.export
     def is_input_mono(self) -> bool:
-        return self.io_n_ch == 1
+        return False
 
     @tr.jit.export
     def is_output_mono(self) -> bool:
-        return self.io_n_ch == 1
+        return False
 
     @tr.jit.export
     def get_native_sample_rates(self) -> List[int]:

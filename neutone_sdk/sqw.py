@@ -6,7 +6,7 @@ from typing import Optional, List
 import torch as tr
 from torch import Tensor, nn
 
-from neutone_sdk import WaveformToWaveformMetadata
+from neutone_sdk import WaveformToWaveformMetadata, validate_waveform
 from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
 from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.sandwich import ChannelNormalizerSandwich, InplaceInterpolationResampler
@@ -214,6 +214,7 @@ class SampleQueueWrapper(nn.Module):
             in_popped_n = self.in_queue.pop(self.model_in_buffer)
             if self.use_debug_mode:
                 assert in_popped_n == self.model_bs
+                validate_waveform(self.model_in_buffer, self.is_input_mono())
 
             if self.params_queue.is_empty():
                 model_out = self.w2w_base.forward(self.model_in_buffer, None)
@@ -223,6 +224,8 @@ class SampleQueueWrapper(nn.Module):
                     assert params_popped_n == in_popped_n
                 model_out = self.w2w_base.forward(self.model_in_buffer, self.params_buffer)
 
+            if self.use_debug_mode:
+                validate_waveform(model_out, self.is_output_mono())
             self.out_queue.push(model_out)
 
     @tr.no_grad()

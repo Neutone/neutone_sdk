@@ -232,9 +232,9 @@ def test_run(model: "NeutoneModel", multichannel: bool = False) -> None:
 def validate_waveform(x: Tensor, is_mono: bool) -> None:
     assert x.ndim == 2, "Audio tensor must have two dimensions: (channels, samples)"
     if is_mono:
-        assert x.shape[0] == 1, "Audio tensor should be mono and only have one channel"
+        assert x.shape[0] == 1, "Audio tensor should be mono and have exactly one channel"
     else:
-        assert x.shape[0] == 2, "Audio tensor should be stereo and only have two channels"
+        assert x.shape[0] == 2, "Audio tensor should be stereo and have exactly two channels"
     assert x.shape[-1] > x.shape[0], (
         f"The number of channels {x.shape[-2]} exceeds the number of samples "
         f"{x.shape[-1]} in the audio tensor. There might be something "

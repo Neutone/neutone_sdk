@@ -103,6 +103,11 @@ def render_audio_sample(
     params: Optional[Tensor] = None,
     output_sr: int = 44100,
 ) -> AudioSample:
+    """
+    params: either [model.MAX_N_PARAMS] 1d tensor of constant parameter values
+            or [model.MAX_N_PARAMS, input_sample.audio.size(1)] 2d tensor of parameter values for every input audio sample
+    """
+
     model.use_debug_mode = (
         True  # Turn on debug mode to catch common mistakes when rendering sample audio
     )
@@ -127,14 +132,47 @@ def render_audio_sample(
     audio_len = audio.size(1)
     padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
     padded_audio = nn.functional.pad(audio, [0, padding_amount])
-    chunks = padded_audio.split(buffer_size, dim=1)
+    audio_chunks = padded_audio.split(buffer_size, dim=1)
 
     model.set_daw_sample_rate_and_buffer_size(
         preferred_sr, buffer_size, preferred_sr, buffer_size
     )
-    audio_out = tr.hstack(
-        [model.forward(chunk, params).clone() for chunk in tqdm(chunks)]
-    )[:, :audio_len]
+
+    # make sure the shape of params is compatible with the model calls.
+    if params is not None:
+        assert params.shape[0] == model.MAX_N_PARAMS
+
+        # if constant values, copy across audio dimension
+        if params.dim() == 1:
+            params = params.repeat([audio_len, 1]).T
+
+        # otherwise resample to match audio
+        else:
+            assert params.shape == (model.MAX_N_PARAMS, input_sample.audio.size(1))
+            params = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(
+                params
+            )
+            params = torch.clamp(params, 0, 1)
+
+        # padding and chunking parameters to match audio
+        padded_params = nn.functional.pad(params, [0, padding_amount], mode="replicate")
+        param_chunks = padded_params.split(buffer_size, dim=1)
+
+        out_chunks = [
+            model.forward(audio_chunk, param_chunk).clone()
+            for audio_chunk, param_chunk in tqdm(
+                zip(audio_chunks, param_chunks), total=len(audio_chunks)
+            )
+        ]
+
+    else:
+        out_chunks = [
+            model.forward(audio_chunk, None).clone()
+            for audio_chunk in tqdm(audio_chunks)
+        ]
+
+    audio_out = tr.hstack(out_chunks)[:, :audio_len]
+
     model.reset()
 
     if preferred_sr != output_sr:

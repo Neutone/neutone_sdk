@@ -6,10 +6,9 @@ import random
 from pathlib import Path
 from typing import Tuple, Dict, List
 from neutone_sdk.audio import (
+    AudioSample,
     AudioSamplePair,
-    audio_sample_to_mp3_bytes,
     get_default_audio_samples,
-    mp3_b64_to_audio_sample,
     render_audio_sample,
 )
 from neutone_sdk.constants import MAX_N_AUDIO_SAMPLES
@@ -30,9 +29,9 @@ def dump_samples_from_metadata(metadata: Dict, root_dir: Path) -> None:
     os.makedirs(root_dir / "samples", exist_ok=True)
     for i, sample in enumerate(metadata["sample_sound_files"]):
         with open(root_dir / "samples" / f"sample_in_{i}.mp3", "wb") as f:
-            f.write(audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["in"])))
+            f.write(AudioSample.from_b64(sample["in"]).to_mp3_bytes())
         with open(root_dir / "samples" / f"sample_out_{i}.mp3", "wb") as f:
-            f.write(audio_sample_to_mp3_bytes(mp3_b64_to_audio_sample(sample["out"])))
+            f.write(AudioSample.from_b64(sample["out"]).to_mp3_bytes())
 
 
 def model_to_torchscript(

@@ -11,8 +11,9 @@ install_requires = \
 ['jsonschema>=4.4.0,<5.0.0',
  'numpy>=1.21.6,<2.0.0',
  'requests>=2.27.1,<3.0.0',
- 'torch>=1.11.0',
- 'torchaudio>=0.11.0',
+ 'soundfile>=0.12.1',
+ 'torch>=1.11.0,<2.0.0',
+ 'torchaudio>=0.11.0,<2.0.0',
  'tqdm>=4.63.1,<5.0.0']
 
 setup_kwargs = {

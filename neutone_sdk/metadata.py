@@ -3,7 +3,7 @@ import os
 from jsonschema import validate, ValidationError
 import requests
 
-from neutone_sdk.audio import mp3_b64_to_audio_sample
+from neutone_sdk.audio import AudioSample
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -188,8 +188,8 @@ def validate_metadata(metadata: dict) -> bool:
 
     # Check we can extract mp3s from the samples
     for audio_sample_pair in metadata["sample_sound_files"]:
-        mp3_b64_to_audio_sample(audio_sample_pair["in"])
-        mp3_b64_to_audio_sample(audio_sample_pair["out"])
+        AudioSample.from_b64(audio_sample_pair["in"])
+        AudioSample.from_b64(audio_sample_pair["out"])
 
     # We shouldn't have any problems here but as a sanity check
     for param_metadata in metadata["neutone_parameters"].values():

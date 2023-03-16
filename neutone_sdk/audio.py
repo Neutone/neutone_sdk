@@ -1,4 +1,5 @@
 import base64
+from cffi import FFI
 from dataclasses import dataclass
 import logging
 import math
@@ -6,10 +7,13 @@ import io
 import pkgutil
 import tempfile
 from typing import Optional, List, Union
+from typing_extensions import Self
 
+import numpy as np
 import torch as tr
 from torch import nn, Tensor
 import torchaudio
+import soundfile as sf
 from torch.jit import ScriptModule
 from tqdm import tqdm
 
@@ -19,8 +23,44 @@ logging.basicConfig()
 log = logging.getLogger(__name__)
 
 
+def write_mp3(filename: str, y: tr.Tensor, sr: int, quality: float = 0):
+    """
+    We're using this instead of sf.write in order to change the bitrate,
+    where quality goes from 0 (high) to 1 (low).
+
+    The API is similar to torchaudio.save, so y should be (num_channels, num_samples).
+    """
+    assert 0 <= quality <= 1
+    assert (
+        y.shape[0] < y.shape[1]
+    ), "Expecting  audio to have a shape of (num_channels, num_samples), try swapping the dimensions"
+    ffi = FFI()
+    quality = ffi.new("double *")
+    vbr_set = ffi.new("int *")
+    with sf.SoundFile(filename, "w", channels=y.shape[0], samplerate=sr) as f:
+        quality[0] = 0  # 0[high]~1[low]
+        # 0x1301 - SFC_SET_COMPRESSION_LEVEL
+        c = sf._snd.sf_command(f._file, 0x1301, quality, 8)
+        assert c == sf._snd.SF_TRUE, "Couldn't set bitrate on MP3"
+
+        # 0x1305 - SFC_SET_BITRATE_MODE
+        vbr_set[0] = 2  # 0 - CONSTANT, 1 - AVERAGE, 2 - VARIABLE
+        c = sf._snd.sf_command(f._file, 0x1305, vbr_set, 4)
+        assert c == sf._snd.SF_TRUE, "Couldn't set MP3 to VBR"
+
+        f.write(y.T.numpy())
+    assert f.closed
+
+
 @dataclass
 class AudioSample:
+    """
+    AudioSample is simply a pair of (audio, sample_rate) that is easier to work
+    with within the SDK. We recommend users to read and write to mp3 files as
+    they are better supported and formats like ogg can have subtle bugs when
+    reading and writing using the current backend (soundfile).
+    """
+
     audio: Tensor
     sr: int
 
@@ -33,6 +73,32 @@ class AudioSample:
     def is_mono(self) -> bool:
         return self.audio.size(0) == 1
 
+    def to_mp3_bytes(self) -> bytes:
+        buff = io.BytesIO()
+        with tempfile.NamedTemporaryFile(suffix=".mp3") as temp:
+            write_mp3(temp.name, self.audio, self.sr)
+            with open(temp.name, "rb") as f:
+                buff.write(f.read())
+        buff.seek(0)
+        return buff.read()
+
+    def to_mp3_b64(self) -> str:
+        return base64.b64encode(self.to_mp3_bytes()).decode()
+
+    @classmethod
+    def from_bytes(cls, bytes_: bytes) -> Self:
+        y, sr = sf.read(io.BytesIO(bytes_), always_2d=True)
+        return cls(tr.from_numpy(y.T), sr)
+
+    @classmethod
+    def from_file(cls, path: str) -> Self:
+        with open(path, "rb") as f:
+            return cls.from_bytes(f.read())
+
+    @classmethod
+    def from_b64(cls, b64_sample: str) -> Self:
+        return cls.from_bytes(base64.b64decode(b64_sample))
+
 
 @dataclass
 class AudioSamplePair:
@@ -41,29 +107,9 @@ class AudioSamplePair:
 
     def to_metadata_format(self):
         return {
-            "in": audio_sample_to_mp3_b64(self.input),
-            "out": audio_sample_to_mp3_b64(self.output),
+            "in": self.input.to_mp3_b64(),
+            "out": self.output.to_mp3_b64(),
         }
-
-
-def audio_sample_to_mp3_bytes(sample: AudioSample) -> bytes:
-    buff = io.BytesIO()
-    with tempfile.NamedTemporaryFile(suffix=".mp3") as temp:
-        torchaudio.save(temp.name, sample.audio, sample.sr)
-        with open(temp.name, "rb") as f:
-            buff.write(f.read())
-    buff.seek(0)
-    return buff.read()
-
-
-def audio_sample_to_mp3_b64(sample: AudioSample) -> str:
-    mp3_bytes = audio_sample_to_mp3_bytes(sample)
-    return base64.b64encode(mp3_bytes).decode()
-
-
-def mp3_b64_to_audio_sample(b64_sample: str) -> AudioSample:
-    audio, sr = torchaudio.load(io.BytesIO(base64.b64decode(b64_sample)), format="mp3")
-    return AudioSample(audio, sr)
 
 
 def get_default_audio_samples() -> List[AudioSample]:
@@ -81,20 +127,14 @@ def get_default_audio_samples() -> List[AudioSample]:
     log.info(
         "Using default sample... Please consider using your own audio samples by overriding the get_audio_samples method"
     )
-    wave_inst, sr_inst = torchaudio.load(
-        io.BytesIO(
-            pkgutil.get_data(__package__, "assets/default_samples/sample_inst.mp3")
-        ),
-        format="mp3",
+    sample_inst = AudioSample.from_bytes(
+        pkgutil.get_data(__package__, "assets/default_samples/sample_inst.mp3"),
     )
-    wave_music, sr_music = torchaudio.load(
-        io.BytesIO(
-            pkgutil.get_data(__package__, "assets/default_samples/sample_music.mp3")
-        ),
-        format="mp3",
+    sample_music = AudioSample.from_bytes(
+        pkgutil.get_data(__package__, "assets/default_samples/sample_music.mp3"),
     )
 
-    return [AudioSample(wave_inst, sr_inst), AudioSample(wave_music, sr_music)]
+    return [sample_inst, sample_music]
 
 
 def render_audio_sample(

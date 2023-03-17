@@ -42,7 +42,7 @@ SCHEMA = {
         },
         "citation": {
             "type": "string",
-            "maxLength": 150,
+            "maxLength": 300,
         },
         "is_experimental": {
             "type": "boolean",

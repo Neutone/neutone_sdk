@@ -94,5 +94,5 @@ if __name__ == "__main__":
     model = ClipperModel()
     wrapper = ClipperModelWrapper(model)
     save_neutone_model(
-        wrapper, root_dir, freeze=False, dump_samples=True, submission=True
+        wrapper, root_dir, dump_samples=True, submission=True
     )

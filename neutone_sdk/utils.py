@@ -44,6 +44,7 @@ def model_to_torchscript(
     script = tr.jit.script(model)
     check_for_preserved_attributes(script, script.get_preserved_attributes())
     if freeze:
+        log.warning(f"Freezing is not recommended as it may break the model or reduce TorchScript inference speed.")
         script = tr.jit.freeze(script, preserved_attrs=script.get_preserved_attributes())
     if optimize:
         log.warning(f"Optimizing may break the model.")
@@ -55,12 +56,12 @@ def model_to_torchscript(
 def save_neutone_model(
     model: "WaveformToWaveformBase",
     root_dir: Path,
-    freeze: bool = False,
-    optimize: bool = False,
     dump_samples: bool = False,
     submission: bool = False,
     audio_sample_pairs: List[AudioSamplePair] = None,
     max_n_samples: int = MAX_N_AUDIO_SAMPLES,
+    freeze: bool = False,
+    optimize: bool = False,
 ) -> None:
     """
     Save a Neutone model to disk as a Torchscript file. Additionally include metadata file and samples as needed.
@@ -68,8 +69,6 @@ def save_neutone_model(
     Args:
         model: Your Neutone model. Should derive from neutone_sdk.WaveformToWaveformBase.
         root_dir: Directory to dump the model and auxiliary files.
-        freeze: If true, jit.freeze will be applied to the model.
-        optimize: Bool If true, jit.optimize_for_inference will be applied to the model.
         dump_samples: If true, will additionally dump audio samples from the .nm file for listening.
         submission: If true, will run additional checks to ensure the model
                 saved on disk behaves identically to the one loaded in memory.
@@ -78,6 +77,8 @@ def save_neutone_model(
                 website once the model is submitted.
         max_n_samples: Can be used to override the maximum number of samples
                 used (default of 3) for exceptional cases.
+        freeze: If true, jit.freeze will be applied to the model.
+        optimize: If true, jit.optimize_for_inference will be applied to the model.
 
     Returns:
       Will create the following files:

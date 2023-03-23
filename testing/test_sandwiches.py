@@ -21,7 +21,9 @@ def test_interpolation_resamplers(in_n_ch: int = 2, out_n_ch: int = 2) -> None:
     trials = 1000
 
     resampler = InterpolationResampler(48000, 48000, 512)
-    inplace_resampler = InplaceInterpolationResampler(in_n_ch, out_n_ch, 48000, 48000, 512)
+    inplace_resampler = InplaceInterpolationResampler(
+        in_n_ch, out_n_ch, 48000, 48000, 512
+    )
 
     for _ in tqdm(range(trials)):
         sr_a = random.choice(sampling_rates)
@@ -36,21 +38,19 @@ def test_interpolation_resamplers(in_n_ch: int = 2, out_n_ch: int = 2) -> None:
         resampled_2 = inplace_resampler.process_in(in_audio)
         out_bs = resampled_1.size(1)
         assert resampled_1.shape == resampled_2.shape
-        assert (tr.allclose(resampled_1, resampled_2, atol=1e-5))
-        resampled_3 = F.interpolate(in_audio.unsqueeze(0),
-                                    out_bs,
-                                    mode='linear',
-                                    align_corners=True).squeeze(0)
-        assert (tr.allclose(resampled_1, resampled_3, atol=1e-5))
+        assert tr.allclose(resampled_1, resampled_2, atol=1e-5)
+        resampled_3 = F.interpolate(
+            in_audio.unsqueeze(0), out_bs, mode="linear", align_corners=True
+        ).squeeze(0)
+        assert tr.allclose(resampled_1, resampled_3, atol=1e-5)
 
         out_audio = tr.rand((out_n_ch, out_bs))
         resampled_1 = resampler.process_out(out_audio)
         resampled_2 = inplace_resampler.process_out(out_audio)
         assert resampled_1.shape == resampled_2.shape
         assert resampled_1.size(1) == in_bs
-        assert (tr.allclose(resampled_1, resampled_2, atol=1e-5))
-        resampled_3 = F.interpolate(out_audio.unsqueeze(0),
-                                    in_bs,
-                                    mode='linear',
-                                    align_corners=True).squeeze(0)
-        assert (tr.allclose(resampled_1, resampled_3, atol=1e-5))
+        assert tr.allclose(resampled_1, resampled_2, atol=1e-5)
+        resampled_3 = F.interpolate(
+            out_audio.unsqueeze(0), in_bs, mode="linear", align_corners=True
+        ).squeeze(0)
+        assert tr.allclose(resampled_1, resampled_3, atol=1e-5)

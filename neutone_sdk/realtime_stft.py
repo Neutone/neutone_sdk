@@ -28,7 +28,7 @@ class RealtimeSTFT(nn.Module):
         use_phase_info: bool = True,
         fade_n_samples: int = 0,
         eps: float = 1e-8,
-        use_debug_mode: bool = True
+        use_debug_mode: bool = True,
     ) -> None:
         super().__init__()
         self.use_debug_mode = use_debug_mode
@@ -37,12 +37,16 @@ class RealtimeSTFT(nn.Module):
             assert (n_fft // 2) % hop_len == 0
             if window is not None:
                 assert window.shape == (n_fft,)
-            assert center, "Behavior of center=False needs to be debugged, results in artefacts"
+            assert (
+                center
+            ), "Behavior of center=False needs to be debugged, results in artefacts"
             # if center:
             #     log.warning("STFT is not causal when center=True")
             assert power is None or power >= 1.0
             if power is None and use_phase_info:
-                log.warning("If power=None, `use_phase_info=True` means the imag component is saved, not the angle")
+                log.warning(
+                    "If power=None, `use_phase_info=True` means the imag component is saved, not the angle"
+                )
             if power is not None and power > 1.0:
                 log.warning(
                     "A power greater than 1.0 probably adds unnecessary "
@@ -191,9 +195,11 @@ class RealtimeSTFT(nn.Module):
             new_frames = stft_out_buf[:, :, -self.io_n_frames :]
 
         # Shift buffer left and insert new frames (this way because tr.roll allocates memory dynamically)
-        frames_buf_tmp[:, :, :-self.io_n_frames] = frames_buf[:, :, self.io_n_frames:]
-        frames_buf[:, :, :-self.io_n_frames] = frames_buf_tmp[:, :, :-self.io_n_frames]
-        frames_buf[:, :, -self.io_n_frames:] = new_frames
+        frames_buf_tmp[:, :, : -self.io_n_frames] = frames_buf[:, :, self.io_n_frames :]
+        frames_buf[:, :, : -self.io_n_frames] = frames_buf_tmp[
+            :, :, : -self.io_n_frames
+        ]
+        frames_buf[:, :, -self.io_n_frames :] = new_frames
 
     @tr.jit.export
     def set_buffer_size(self, io_n_samples: int) -> None:
@@ -272,9 +278,9 @@ class RealtimeSTFT(nn.Module):
         if self.use_debug_mode:
             assert audio.shape == (self.io_n_ch, self.io_n_samples)
         # Shift buffer left and insert audio chunk (this way because tr.roll allocates memory dynamically)
-        self.in_buf_tmp[:, :-self.io_n_samples] = self.in_buf[:, self.io_n_samples:]
-        self.in_buf[:, :-self.io_n_samples] = self.in_buf_tmp[:, :-self.io_n_samples]
-        self.in_buf[:, -self.io_n_samples:] = audio
+        self.in_buf_tmp[:, : -self.io_n_samples] = self.in_buf[:, self.io_n_samples :]
+        self.in_buf[:, : -self.io_n_samples] = self.in_buf_tmp[:, : -self.io_n_samples]
+        self.in_buf[:, -self.io_n_samples :] = audio
 
         # TODO(cm): allow pad_mode to be selected
         complex_frames = tr.stft(
@@ -296,14 +302,18 @@ class RealtimeSTFT(nn.Module):
             if self.ensure_pos_spec:
                 self.stft_mag_buf -= self.log10_eps
 
-        self._update_mag_or_phase_buffers(self.stft_mag_buf, self.mag_buf, self.mag_buf_tmp)
+        self._update_mag_or_phase_buffers(
+            self.stft_mag_buf, self.mag_buf, self.mag_buf_tmp
+        )
 
         if self.use_phase_info:
             if self.power is None:
                 self.stft_phase_buf = complex_frames.imag
             else:
                 tr.angle(complex_frames, out=self.stft_phase_buf)
-            self._update_mag_or_phase_buffers(self.stft_phase_buf, self.phase_buf, self.phase_buf_tmp)
+            self._update_mag_or_phase_buffers(
+                self.stft_phase_buf, self.phase_buf, self.phase_buf_tmp
+            )
 
         # Prevent future inplace operations from mutating self.mag_buf
         self.spec_out_buf[:, :] = self.mag_buf
@@ -315,9 +325,9 @@ class RealtimeSTFT(nn.Module):
             assert spec.shape == self.model_io_shape
         spec = spec[:, :, -self.istft_in_n_frames :]
         if self.use_phase_info:
-            phase = self.phase_buf[:, :, -self.istft_in_n_frames:]
+            phase = self.phase_buf[:, :, -self.istft_in_n_frames :]
         else:
-            phase = self.zero_phase[:, :, -self.istft_in_n_frames:]
+            phase = self.zero_phase[:, :, -self.istft_in_n_frames :]
 
         if self.logarithmize:
             if self.ensure_pos_spec:
@@ -341,11 +351,11 @@ class RealtimeSTFT(nn.Module):
             center=self.center,
             length=self.istft_length,
         )
-        rec_audio = rec_audio[:, -self.out_buf_n_samples:]
+        rec_audio = rec_audio[:, -self.out_buf_n_samples :]
         if self.fade_n_samples == 0:
             return rec_audio
 
-        self.out_buf[:, -self.fade_n_samples:] *= self.fade_down
+        self.out_buf[:, -self.fade_n_samples :] *= self.fade_down
         rec_audio[:, : self.fade_n_samples] *= self.fade_up
         rec_audio[:, : self.fade_n_samples] += self.out_buf[:, -self.fade_n_samples :]
         audio_out = rec_audio[:, : self.io_n_samples]

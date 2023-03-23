@@ -34,5 +34,5 @@ def test_circular_queue() -> None:
                 out_list += block[0, :].int().tolist()
 
         assert len(in_list) >= len(out_list)
-        assert in_list[:len(out_list)] == out_list
+        assert in_list[: len(out_list)] == out_list
         assert queue.size == len(in_list) - len(out_list)

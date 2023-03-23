@@ -11,10 +11,7 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class CircularInplaceTensorQueue:
-    def __init__(self,
-                 n_ch: int,
-                 max_size: int,
-                 use_debug_mode: bool = True) -> None:
+    def __init__(self, n_ch: int, max_size: int, use_debug_mode: bool = True) -> None:
         """
         Creates a FIFO queue designed for audio data that does not allocate any memory during normal use and performs
         as few memory operations as possible. The queue is also compatible with converting to TorchScript.
@@ -61,7 +58,7 @@ class CircularInplaceTensorQueue:
             assert x.size(0) == self.queue.size(0)
         in_n = x.size(1)
         if in_n >= self.max_size:
-            self.queue[:, :] = x[:, -self.max_size:]
+            self.queue[:, :] = x[:, -self.max_size :]
             self.start_idx = 0
             self.end_idx = self.max_size
             self.size = self.max_size

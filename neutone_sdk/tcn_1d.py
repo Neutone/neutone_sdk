@@ -12,7 +12,7 @@ from torch import nn
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 def causal_crop(x: Tensor, length: int) -> Tensor:
@@ -25,10 +25,10 @@ def causal_crop(x: Tensor, length: int) -> Tensor:
 
 class FiLM(nn.Module):
     def __init__(
-            self,
-            cond_dim: int,  # dim of conditioning input
-            num_features: int,  # dim of the conv channel
-            use_bn: bool = True,
+        self,
+        cond_dim: int,  # dim of conditioning input
+        num_features: int,  # dim of the conv channel
+        use_bn: bool = True,
     ) -> None:
         super().__init__()
         self.num_features = num_features
@@ -52,20 +52,22 @@ class FiLM(nn.Module):
 
 
 class TCN1DBlock(nn.Module):
-    def __init__(self,
-                 in_ch: int,
-                 out_ch: int,
-                 kernel_size: int,
-                 dilation: int,
-                 padding: Optional[int] = None,
-                 cond_dim: int = 0,
-                 use_bias_in_conv: bool = True,
-                 use_bn: bool = True,
-                 use_act: bool = True,
-                 use_res: bool = True,
-                 act: Optional[nn.Module] = None,
-                 prelu_ch: int = 1,
-                 res_groups: int = 1) -> None:
+    def __init__(
+        self,
+        in_ch: int,
+        out_ch: int,
+        kernel_size: int,
+        dilation: int,
+        padding: Optional[int] = None,
+        cond_dim: int = 0,
+        use_bias_in_conv: bool = True,
+        use_bn: bool = True,
+        use_act: bool = True,
+        use_res: bool = True,
+        act: Optional[nn.Module] = None,
+        prelu_ch: int = 1,
+        res_groups: int = 1,
+    ) -> None:
         super().__init__()
         self.padding = padding
         if self.padding is None:
@@ -96,11 +98,7 @@ class TCN1DBlock(nn.Module):
 
         self.res = None
         if use_res:
-            self.res = nn.Conv1d(in_ch,
-                                 out_ch,
-                                 (1,),
-                                 groups=res_groups,
-                                 bias=False)
+            self.res = nn.Conv1d(in_ch, out_ch, (1,), groups=res_groups, bias=False)
 
     def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:
         x_in = x
@@ -122,18 +120,20 @@ class TCN1DBlock(nn.Module):
 
 
 class TCN1D(nn.Module):
-    def __init__(self,
-                 in_ch: int = 1,
-                 out_ch: int = 1,
-                 n_blocks: int = 10,
-                 kernel_size: int = 13,
-                 n_channels: int = 64,
-                 dil_growth: int = 4,
-                 padding: Optional[int] = None,
-                 cond_dim: int = 0,
-                 use_act: bool = True,
-                 use_bn: bool = False,
-                 use_bias_in_conv: bool = True) -> None:
+    def __init__(
+        self,
+        in_ch: int = 1,
+        out_ch: int = 1,
+        n_blocks: int = 10,
+        kernel_size: int = 13,
+        n_channels: int = 64,
+        dil_growth: int = 4,
+        padding: Optional[int] = None,
+        cond_dim: int = 0,
+        use_act: bool = True,
+        use_bn: bool = False,
+        use_bias_in_conv: bool = True,
+    ) -> None:
         super().__init__()
         self.kernel_size = kernel_size
         self.n_channels = n_channels
@@ -157,18 +157,20 @@ class TCN1D(nn.Module):
                 block_in_ch = self.n_channels
                 block_out_ch = self.n_channels
 
-            dilation = self.dil_growth ** n
-            self.blocks.append(TCN1DBlock(
-                block_in_ch,
-                block_out_ch,
-                self.kernel_size,
-                dilation,
-                padding=padding,
-                cond_dim=self.cond_dim,
-                use_act=self.use_act,
-                use_bn=self.use_bn,
-                use_bias_in_conv=self.use_bias_in_conv,
-            ))
+            dilation = self.dil_growth**n
+            self.blocks.append(
+                TCN1DBlock(
+                    block_in_ch,
+                    block_out_ch,
+                    self.kernel_size,
+                    dilation,
+                    padding=padding,
+                    cond_dim=self.cond_dim,
+                    use_act=self.use_act,
+                    use_bn=self.use_bn,
+                    use_bias_in_conv=self.use_bias_in_conv,
+                )
+            )
 
     def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:
         assert x.ndim == 3  # (batch_size, in_ch, samples)
@@ -187,7 +189,7 @@ class TCN1D(nn.Module):
         return rf
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     tcn = TCN1D(n_blocks=4, cond_dim=3, use_bn=True)
     log.info(tcn.calc_receptive_field())
     audio = tr.rand((1, 1, 65536))

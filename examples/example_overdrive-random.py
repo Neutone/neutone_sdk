@@ -225,5 +225,5 @@ if __name__ == "__main__":
     wrapper = OverdriveModelWrapper(model)
     metadata = wrapper.to_metadata()
     save_neutone_model(
-        wrapper, root_dir, freeze=False, dump_samples=True, submission=True
+        wrapper, root_dir, dump_samples=True, submission=True
     )

@@ -216,23 +216,6 @@ class NeutoneModel(ABC, nn.Module):
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return []
 
-    def get_default_param_values(self) -> Tensor:
-        return self.default_param_values
-
-    def get_wet_default_value(self) -> float:
-        return 1.0
-
-    def get_dry_default_value(self) -> float:
-        return 0.0
-
-    def get_input_gain_default_value(self) -> float:
-        """[0.0, 1.0] here maps to [-30.0db, +30.0db]"""
-        return 0.5
-
-    def get_output_gain_default_value(self) -> float:
-        """[0.0, 1.0] here maps to [-30.0db, +30.0db]"""
-        return 0.5
-
     def prepare_for_inference(self) -> None:
         """Prepare a model for inference and to be converted to torchscript."""
         self.use_debug_mode = False
@@ -240,12 +223,39 @@ class NeutoneModel(ABC, nn.Module):
         self.eval()
 
     @tr.jit.export
+    def get_default_param_values(self) -> Tensor:
+        return self.default_param_values
+
+    @tr.jit.export
+    def get_wet_default_value(self) -> float:
+        return 1.0
+
+    @tr.jit.export
+    def get_dry_default_value(self) -> float:
+        return 0.0
+
+    @tr.jit.export
+    def get_input_gain_default_value(self) -> float:
+        """[0.0, 1.0] here maps to [-30.0db, +30.0db]"""
+        return 0.5
+
+    @tr.jit.export
+    def get_output_gain_default_value(self) -> float:
+        """[0.0, 1.0] here maps to [-30.0db, +30.0db]"""
+        return 0.5
+
+    @tr.jit.export
     def get_core_preserved_attributes(self) -> List[str]:
         return [
-            "to_core_metadata",
-            "model",
-            "default_param_values",
+            "model",  # nn.Module
+            "default_param_values",  # Registered buffer
+            "get_default_param_values",
+            "get_wet_default_value",
+            "get_dry_default_value",
+            "get_input_gain_default_value",
+            "get_output_gain_default_value",
             "get_core_preserved_attributes",
+            "to_core_metadata",
         ]
 
     @tr.jit.export

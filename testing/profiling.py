@@ -111,7 +111,7 @@ def profile_sqw(sqw: SampleQueueWrapper,
     if convert_to_torchscript:
         log.info("Converting to TorchScript")
         with tr.no_grad():
-            sqw = model_to_torchscript(sqw, freeze=True, optimize=False)
+            sqw = model_to_torchscript(sqw, freeze=False, optimize=False)
 
     with profile(activities=[ProfilerActivity.CPU],
                  with_stack=True,

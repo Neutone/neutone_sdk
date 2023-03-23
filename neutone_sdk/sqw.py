@@ -9,7 +9,10 @@ from torch import Tensor, nn
 from neutone_sdk import WaveformToWaveformMetadata, validate_waveform
 from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
 from neutone_sdk.queues import CircularInplaceTensorQueue
-from neutone_sdk.sandwich import ChannelNormalizerSandwich, InplaceInterpolationResampler
+from neutone_sdk.sandwich import (
+    ChannelNormalizerSandwich,
+    InplaceInterpolationResampler,
+)
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -17,13 +20,15 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class SampleQueueWrapper(nn.Module):
-    def __init__(self,
-                 w2w_base: "WaveformToWaveformBase",
-                 daw_sr: int = DEFAULT_DAW_SR,
-                 model_sr: Optional[int] = None,
-                 daw_bs: int = DEFAULT_DAW_BS,
-                 model_bs: Optional[int] = None,
-                 use_debug_mode: bool = True) -> None:
+    def __init__(
+        self,
+        w2w_base: "WaveformToWaveformBase",
+        daw_sr: int = DEFAULT_DAW_SR,
+        model_sr: Optional[int] = None,
+        daw_bs: int = DEFAULT_DAW_BS,
+        model_bs: Optional[int] = None,
+        use_debug_mode: bool = True,
+    ) -> None:
         """
         Creates a SampleQueueWrapper (SQW) which wraps a WaveformToWaveformBase Neutone model to make it compatible
         with varying DAW sampling rates, buffer sizes, and also delay reporting, and multithreading.
@@ -37,20 +42,26 @@ class SampleQueueWrapper(nn.Module):
         self.in_n_ch = 1 if self.is_input_mono() else 2
         self.out_n_ch = 1 if self.is_output_mono() else 2
 
-        self.channel_normalizer = ChannelNormalizerSandwich(use_debug_mode=use_debug_mode)
+        self.channel_normalizer = ChannelNormalizerSandwich(
+            use_debug_mode=use_debug_mode
+        )
         # TODO(cm): switch to a more robust resampling method that prevents aliasing
-        self.resample_sandwich = InplaceInterpolationResampler(self.in_n_ch,
-                                                               self.out_n_ch,
-                                                               daw_sr,
-                                                               daw_sr,  # Tmp sample rate values
-                                                               daw_bs,
-                                                               use_debug_mode=use_debug_mode)
-        self.params_resample_sandwich = InplaceInterpolationResampler(self.w2w_base.MAX_N_PARAMS,
-                                                                      self.w2w_base.MAX_N_PARAMS,
-                                                                      daw_sr,
-                                                                      daw_sr,  # Tmp sample rate value
-                                                                      daw_bs,
-                                                                      use_debug_mode=use_debug_mode)
+        self.resample_sandwich = InplaceInterpolationResampler(
+            self.in_n_ch,
+            self.out_n_ch,
+            daw_sr,
+            daw_sr,  # Tmp sample rate values
+            daw_bs,
+            use_debug_mode=use_debug_mode,
+        )
+        self.params_resample_sandwich = InplaceInterpolationResampler(
+            self.w2w_base.MAX_N_PARAMS,
+            self.w2w_base.MAX_N_PARAMS,
+            daw_sr,
+            daw_sr,  # Tmp sample rate value
+            daw_bs,
+            use_debug_mode=use_debug_mode,
+        )
 
         self.daw_sr = daw_sr
         self.model_sr = model_sr
@@ -95,7 +106,9 @@ class SampleQueueWrapper(nn.Module):
         return native_sample_rates[min_idx]
 
     @staticmethod
-    def select_best_model_buffer_size(io_bs: int, native_buffer_sizes: List[int]) -> int:
+    def select_best_model_buffer_size(
+        io_bs: int, native_buffer_sizes: List[int]
+    ) -> int:
         """
         Given a DAW buffer size and a list of all the buffer sizes a Neutone model supports (usually only one, or
         an empty list indicates all buffer sizes are supported), determine the optimal buffer size to use.
@@ -124,8 +137,12 @@ class SampleQueueWrapper(nn.Module):
         io_bs_t = tr.tensor(io_bs)
         model_bs_t = tr.tensor(model_bs)
         lcm_t = tr.lcm(io_bs_t, model_bs_t)
-        cycle_len = int(tr.div(lcm_t, io_bs_t, rounding_mode='trunc').item())  # TorchScript requires this casting
-        remainders_shifted = (tr.arange(0, cycle_len, dtype=tr.int) * io_bs_t) % model_bs_t
+        cycle_len = int(
+            tr.div(lcm_t, io_bs_t, rounding_mode="trunc").item()
+        )  # TorchScript requires this casting
+        remainders_shifted = (
+            tr.arange(0, cycle_len, dtype=tr.int) * io_bs_t
+        ) % model_bs_t
         remainders = (tr.arange(1, cycle_len + 1, dtype=tr.int) * io_bs_t) % model_bs_t
         pop_locs = tr.where(remainders > remainders_shifted, 0, 1)
         pop_locs_rev = tr.flip(pop_locs, dims=(0,))
@@ -134,7 +151,9 @@ class SampleQueueWrapper(nn.Module):
         offset = 0
         for _ in range(cycle_len):
             pop_locs_rev_cumsum_shifted = tr.zeros_like(pop_locs_rev_cumsum)
-            pop_locs_rev_cumsum_shifted[offset:] = pop_locs_rev_cumsum[0:cycle_len - offset]
+            pop_locs_rev_cumsum_shifted[offset:] = pop_locs_rev_cumsum[
+                0 : cycle_len - offset
+            ]
             if tr.all(pop_locs_cumsum >= pop_locs_rev_cumsum_shifted):
                 break
             offset += 1
@@ -180,7 +199,9 @@ class SampleQueueWrapper(nn.Module):
         return resampled_bs
 
     @staticmethod
-    def calc_max_daw_queue_size(daw_sr: int, daw_bs: int, model_sr: int, model_bs: int) -> int:
+    def calc_max_daw_queue_size(
+        daw_sr: int, daw_bs: int, model_sr: int, model_bs: int
+    ) -> int:
         daw_model_bs = int(model_bs * daw_sr / model_sr) + 1
         return (2 * daw_bs) + daw_model_bs
 
@@ -222,7 +243,9 @@ class SampleQueueWrapper(nn.Module):
                 params_popped_n = self.params_queue.pop(self.params_buffer)
                 if self.use_debug_mode:
                     assert params_popped_n == in_popped_n
-                model_out = self.w2w_base.forward(self.model_in_buffer, self.params_buffer)
+                model_out = self.w2w_base.forward(
+                    self.model_in_buffer, self.params_buffer
+                )
 
             if self.use_debug_mode:
                 validate_waveform(model_out, self.is_output_mono())
@@ -251,7 +274,9 @@ class SampleQueueWrapper(nn.Module):
 
     @tr.jit.export
     @tr.no_grad()
-    def forward_bt(self, x: Tensor, params: Optional[Tensor] = None) -> Optional[Tensor]:
+    def forward_bt(
+        self, x: Tensor, params: Optional[Tensor] = None
+    ) -> Optional[Tensor]:
         daw_n_ch = x.size(0)
         is_daw_mono = daw_n_ch == 1
         x = self.channel_normalizer(x, self.is_input_mono(), self.daw_buffer)
@@ -268,7 +293,7 @@ class SampleQueueWrapper(nn.Module):
             if self.use_debug_mode:
                 assert x.size(1) == self.daw_bs
                 assert curr_n + self.daw_bs <= self.bt_out_buffer.size(1)
-            self.bt_out_buffer[0:daw_n_ch, curr_n:curr_n + self.daw_bs] = x
+            self.bt_out_buffer[0:daw_n_ch, curr_n : curr_n + self.daw_bs] = x
             curr_n += self.daw_bs
 
         if curr_n == 0:
@@ -307,16 +332,19 @@ class SampleQueueWrapper(nn.Module):
 
     @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
-            self,
-            daw_sr: int,
-            daw_bs: int,
-            model_sr: Optional[int] = None,
-            model_bs: Optional[int] = None,
+        self,
+        daw_sr: int,
+        daw_bs: int,
+        model_sr: Optional[int] = None,
+        model_bs: Optional[int] = None,
     ) -> int:
         # Sample rate
         if model_sr is not None:
             if self.use_debug_mode:
-                assert len(self.get_native_sample_rates()) == 0 or model_sr in self.get_native_sample_rates()
+                assert (
+                    len(self.get_native_sample_rates()) == 0
+                    or model_sr in self.get_native_sample_rates()
+                )
         else:
             model_sr = self.select_best_model_sr(daw_sr, self.get_native_sample_rates())
 
@@ -330,34 +358,44 @@ class SampleQueueWrapper(nn.Module):
         # Buffer size
         if model_bs is not None:
             if self.use_debug_mode:
-                assert len(self.get_native_buffer_sizes()) == 0 or model_bs in self.get_native_buffer_sizes()
+                assert (
+                    len(self.get_native_buffer_sizes()) == 0
+                    or model_bs in self.get_native_buffer_sizes()
+                )
         else:
-            model_bs = self.select_best_model_buffer_size(io_bs, self.get_native_buffer_sizes())
+            model_bs = self.select_best_model_buffer_size(
+                io_bs, self.get_native_buffer_sizes()
+            )
 
         self.w2w_base.set_buffer_size(model_bs)
         self.daw_bs = daw_bs
         self.io_bs = io_bs
         self.model_bs = model_bs
 
-        self.in_queue = CircularInplaceTensorQueue(self.in_n_ch,
-                                                   (2 * self.io_bs) + self.model_bs,
-                                                   use_debug_mode=self.use_debug_mode)
-        self.params_queue = CircularInplaceTensorQueue(self.w2w_base.MAX_N_PARAMS,
-                                                       (2 * self.io_bs) + self.model_bs,
-                                                       use_debug_mode=self.use_debug_mode)
-        self.out_queue = CircularInplaceTensorQueue(self.out_n_ch,
-                                                    (2 * self.io_bs) + self.model_bs,
-                                                    use_debug_mode=self.use_debug_mode)
+        self.in_queue = CircularInplaceTensorQueue(
+            self.in_n_ch,
+            (2 * self.io_bs) + self.model_bs,
+            use_debug_mode=self.use_debug_mode,
+        )
+        self.params_queue = CircularInplaceTensorQueue(
+            self.w2w_base.MAX_N_PARAMS,
+            (2 * self.io_bs) + self.model_bs,
+            use_debug_mode=self.use_debug_mode,
+        )
+        self.out_queue = CircularInplaceTensorQueue(
+            self.out_n_ch,
+            (2 * self.io_bs) + self.model_bs,
+            use_debug_mode=self.use_debug_mode,
+        )
 
         self.daw_buffer = tr.zeros((2, self.daw_bs))
         self.model_in_buffer = tr.zeros((self.in_n_ch, self.model_bs))
         self.params_buffer = tr.zeros((self.w2w_base.MAX_N_PARAMS, self.model_bs))
         self.io_out_buffer = tr.zeros((self.out_n_ch, self.io_bs))
 
-        max_daw_queue_size = self.calc_max_daw_queue_size(self.daw_sr,
-                                                          self.daw_bs,
-                                                          self.model_sr,
-                                                          self.model_bs)
+        max_daw_queue_size = self.calc_max_daw_queue_size(
+            self.daw_sr, self.daw_bs, self.model_sr, self.model_bs
+        )
         self.bt_out_buffer = tr.zeros((2, max_daw_queue_size))
 
         self.saturation_n = self.calc_saturation_n(self.io_bs, self.model_bs)

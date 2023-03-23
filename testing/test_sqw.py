@@ -23,11 +23,13 @@ class TestModel(nn.Module):
 
 
 class TestModelWrapper(WaveformToWaveformBase):
-    def __init__(self,
-                 model: nn.Module = TestModel(),
-                 model_sr: int = 48000,
-                 model_bs: int = 512,
-                 use_debug_mode: bool = True) -> None:
+    def __init__(
+        self,
+        model: nn.Module = TestModel(),
+        model_sr: int = 48000,
+        model_bs: int = 512,
+        use_debug_mode: bool = True,
+    ) -> None:
         super().__init__(model, use_debug_mode)
         self.model_sr = model_sr
         self.model_bs = model_bs
@@ -104,7 +106,9 @@ def find_saturation_n(io_bs: int, model_bs: int) -> Optional[int]:
 def check_queue_saturation(io_bs: int, model_bs: int, saturation_n: int) -> bool:
     sr = 48000
     wrapper = TestModelWrapper(model_sr=sr, model_bs=model_bs)
-    sqw = SampleQueueWrapper(wrapper, daw_sr=sr, daw_bs=io_bs, model_sr=sr, model_bs=model_bs)
+    sqw = SampleQueueWrapper(
+        wrapper, daw_sr=sr, daw_bs=io_bs, model_sr=sr, model_bs=model_bs
+    )
     in_queue = sqw.in_queue
     out_queue = sqw.out_queue
 
@@ -123,7 +127,7 @@ def check_queue_saturation(io_bs: int, model_bs: int, saturation_n: int) -> bool
         in_queue.push(block_in)
 
         if in_queue.size >= saturation_n:
-           is_saturated = True
+            is_saturated = True
 
         while in_queue.size >= model_bs:
             in_popped_n = in_queue.pop(model_buffer)
@@ -139,12 +143,14 @@ def check_queue_saturation(io_bs: int, model_bs: int, saturation_n: int) -> bool
     return True
 
 
-def delay_test(wrapper: TestModelWrapper,
-               sqw: SampleQueueWrapper,
-               daw_sr: int,
-               daw_bs: int,
-               model_sr: int,
-               model_bs: int) -> None:
+def delay_test(
+    wrapper: TestModelWrapper,
+    sqw: SampleQueueWrapper,
+    daw_sr: int,
+    daw_bs: int,
+    model_sr: int,
+    model_bs: int,
+) -> None:
     wrapper.model_sr = model_sr
     wrapper.model_bs = model_bs
     sqw.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs)
@@ -190,11 +196,13 @@ def test_calc_saturation_n() -> None:
     for io_bs, model_bs in tqdm(itertools.product(io_buffer_sizes, model_buffer_sizes)):
         calculated_n = SampleQueueWrapper.calc_saturation_n(io_bs, model_bs)
         found_n = find_saturation_n(io_bs, model_bs)
-        assert found_n is not None, f"Could not find a saturation_n. io_bs = {io_bs}, model_bs = {model_bs}"
+        assert (
+            found_n is not None
+        ), f"Could not find a saturation_n. io_bs = {io_bs}, model_bs = {model_bs}"
         assert found_n % io_bs == 0
-        assert calculated_n == found_n, (
-            f"io_bs = {io_bs}, model_bs = {model_bs}, calculated_n = {calculated_n}, found_n = {found_n}"
-        )
+        assert (
+            calculated_n == found_n
+        ), f"io_bs = {io_bs}, model_bs = {model_bs}, calculated_n = {calculated_n}, found_n = {found_n}"
         assert check_queue_saturation(io_bs, model_bs, found_n)
 
     log.info("No saturation inconsistencies found")
@@ -214,10 +222,9 @@ def test_calc_min_delay_samples() -> None:
     log.info(f"Sampling rates: {sampling_rates}")
     log.info(f"Buffer sizes: {buffer_sizes}")
 
-    for daw_sr, daw_bs, model_sr, model_bs in tqdm(itertools.product(sampling_rates,
-                                                                     buffer_sizes,
-                                                                     sampling_rates,
-                                                                     buffer_sizes)):
+    for daw_sr, daw_bs, model_sr, model_bs in tqdm(
+        itertools.product(sampling_rates, buffer_sizes, sampling_rates, buffer_sizes)
+    ):
         delay_test(wrapper, sqw, daw_sr, daw_bs, model_sr, model_bs)
 
     log.info("No delay inconsistencies found")

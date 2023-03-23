@@ -30,24 +30,28 @@ class PaddingCached(nn.Module):  # to maintain signal continuity over sample win
 
     def forward(self, x: Tensor) -> Tensor:
         padded_x = torch.cat([self.pad, x], -1)  # concat input signal to the cache
-        self.pad = padded_x[..., -self.padding:]  # discard old cache
+        self.pad = padded_x[..., -self.padding :]  # discard old cache
         return padded_x
 
 
 # TODO(christhetree): integrate this into tcn_1d.py
 class Conv1dCached(nn.Module):  # Conv1d with cache
-    def __init__(self,
-                 in_chan: int,
-                 out_chan: int,
-                 kernel: int,
-                 stride: int,
-                 padding: int,
-                 dilation: int = 1,
-                 weight_norm: bool = False,
-                 bias: bool = False) -> None:
+    def __init__(
+        self,
+        in_chan: int,
+        out_chan: int,
+        kernel: int,
+        stride: int,
+        padding: int,
+        dilation: int = 1,
+        weight_norm: bool = False,
+        bias: bool = False,
+    ) -> None:
         super().__init__()
         self.pad = PaddingCached(padding * 2, in_chan)
-        self.conv = nn.Conv1d(in_chan, out_chan, kernel, stride, dilation=dilation, bias=bias)
+        self.conv = nn.Conv1d(
+            in_chan, out_chan, kernel, stride, dilation=dilation, bias=bias
+        )
         nn.init.normal_(self.conv.weight)  # random initialization
         if weight_norm:
             self.conv = nn.utils.weight_norm(self.conv)
@@ -60,20 +64,31 @@ class Conv1dCached(nn.Module):  # Conv1d with cache
 
 # TODO(christhetree): integrate this into tcn_1d.py
 class TCNBlock(nn.Module):
-    def __init__(self,
-                 in_ch: int,
-                 out_ch: int,
-                 kernel_size: int = 3,
-                 dilation: int = 1,
-                 cond_dim: int = 32) -> None:
+    def __init__(
+        self,
+        in_ch: int,
+        out_ch: int,
+        kernel_size: int = 3,
+        dilation: int = 1,
+        cond_dim: int = 32,
+    ) -> None:
         super(TCNBlock, self).__init__()
         self.in_ch = in_ch
         self.out_ch = out_ch
         self.kernel_size = kernel_size
         padding = kernel_size // 2 * dilation
         self.conv1 = Conv1dCached(
-            in_ch, out_ch, kernel=kernel_size, stride=1, padding=padding, dilation=dilation, bias=True)
-        self.res = nn.Conv1d(in_ch, out_ch, kernel_size=1, groups=1, bias=False)  # residual connection
+            in_ch,
+            out_ch,
+            kernel=kernel_size,
+            stride=1,
+            padding=padding,
+            dilation=dilation,
+            bias=True,
+        )
+        self.res = nn.Conv1d(
+            in_ch, out_ch, kernel_size=1, groups=1, bias=False
+        )  # residual connection
         self.bn = nn.BatchNorm1d(out_ch)
         self.film = FiLM(out_ch, cond_dim)
         self.relu = nn.PReLU(out_ch)
@@ -94,22 +109,26 @@ class TCNBlock(nn.Module):
 
 
 class OverdriveModel(nn.Module):
-    def __init__(self,
-                 ninputs: int = 1,
-                 noutputs: int = 1,
-                 nblocks: int = 4,
-                 channel_growth: int = 0,
-                 channel_width: int = 32,
-                 kernel_size: int = 13,
-                 dilation_growth: int = 2,
-                 ncondition: int = 2) -> None:
+    def __init__(
+        self,
+        ninputs: int = 1,
+        noutputs: int = 1,
+        nblocks: int = 4,
+        channel_growth: int = 0,
+        channel_width: int = 32,
+        kernel_size: int = 13,
+        dilation_growth: int = 2,
+        ncondition: int = 2,
+    ) -> None:
         super().__init__()
 
         # MLP layers for conditioning
         self.ncondition = ncondition
         self.condition = torch.nn.Sequential(
-            torch.nn.Linear(ncondition, 16), torch.nn.ReLU(),
-            torch.nn.Linear(16, 32), torch.nn.ReLU(),
+            torch.nn.Linear(ncondition, 16),
+            torch.nn.ReLU(),
+            torch.nn.Linear(16, 32),
+            torch.nn.ReLU(),
             torch.nn.Linear(32, 32),  # cond_dim = 32
             torch.nn.ReLU(),
         )
@@ -119,8 +138,10 @@ class OverdriveModel(nn.Module):
         for n in range(nblocks):
             in_ch = out_ch if n > 0 else ninputs
             out_ch = in_ch * channel_growth if channel_growth > 1 else channel_width
-            dilation = dilation_growth ** n
-            self.blocks.append(TCNBlock(in_ch, out_ch, kernel_size, dilation, cond_dim=32))
+            dilation = dilation_growth**n
+            self.blocks.append(
+                TCNBlock(in_ch, out_ch, kernel_size, dilation, cond_dim=32)
+            )
         self.output = nn.Conv1d(out_ch, noutputs, kernel_size=1)
 
         # random initialization
@@ -135,7 +156,7 @@ class OverdriveModel(nn.Module):
 
     def weights_init(self, m: nn.Module) -> None:
         classname = m.__class__.__name__
-        if classname == 'Linear':
+        if classname == "Linear":
             nn.init.normal_(m.weight, 0, 0.40)
 
     def initialize_random(self) -> None:
@@ -173,16 +194,18 @@ class OverdriveModelWrapper(WaveformToWaveformBase):
     def get_technical_links(self) -> Dict[str, str]:
         return {
             "Paper": "https://arxiv.org/abs/2010.04237",
-            "Code": "https://github.com/csteinmetz1/micro-tcn"
+            "Code": "https://github.com/csteinmetz1/micro-tcn",
         }
 
     def get_citation(self) -> str:
         return "Steinmetz, C. J., & Reiss, J. D. (2020). Randomized overdrive neural networks. arXiv preprint arXiv:2010.04237."
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
-        return [NeutoneParameter("depth", "Effect Depth", 0.0),
-                NeutoneParameter("P1", "Feature modulation 1", 0.0),
-                NeutoneParameter("P2", "Feature modulation 2", 0.0)]
+        return [
+            NeutoneParameter("depth", "Effect Depth", 0.0),
+            NeutoneParameter("P1", "Feature modulation 1", 0.0),
+            NeutoneParameter("P2", "Feature modulation 2", 0.0),
+        ]
 
     @torch.jit.export
     def is_input_mono(self) -> bool:
@@ -224,6 +247,4 @@ if __name__ == "__main__":
     model = OverdriveModel()
     wrapper = OverdriveModelWrapper(model)
     metadata = wrapper.to_metadata()
-    save_neutone_model(
-        wrapper, root_dir, dump_samples=True, submission=True
-    )
+    save_neutone_model(wrapper, root_dir, dump_samples=True, submission=True)

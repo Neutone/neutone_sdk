@@ -17,7 +17,9 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ClipperModel(nn.Module):
-    def forward(self, x: Tensor, min_val: Tensor, max_val: Tensor, gain: Tensor) -> Tensor:
+    def forward(
+        self, x: Tensor, min_val: Tensor, max_val: Tensor, gain: Tensor
+    ) -> Tensor:
         tr.neg(min_val, out=min_val)
         tr.mul(gain, min_val, out=min_val)
         tr.mul(gain, max_val, out=max_val)
@@ -42,7 +44,9 @@ class ClipperModelWrapper(WaveformToWaveformBase):
         return "Clips the input audio between -1 and 1."
 
     def get_technical_links(self) -> Dict[str, str]:
-        return {"Code": "https://github.com/QosmoInc/neutone_sdk/blob/main/examples/example_clipper.py"}
+        return {
+            "Code": "https://github.com/QosmoInc/neutone_sdk/blob/main/examples/example_clipper.py"
+        }
 
     def get_tags(self) -> List[str]:
         return ["clipper"]
@@ -93,6 +97,4 @@ if __name__ == "__main__":
 
     model = ClipperModel()
     wrapper = ClipperModelWrapper(model)
-    save_neutone_model(
-        wrapper, root_dir, dump_samples=True, submission=True
-    )
+    save_neutone_model(wrapper, root_dir, dump_samples=True, submission=True)

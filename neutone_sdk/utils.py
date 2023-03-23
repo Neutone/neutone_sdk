@@ -43,8 +43,12 @@ def model_to_torchscript(
     script = tr.jit.script(model)
     check_for_preserved_attributes(script, script.get_preserved_attributes())
     if freeze:
-        log.warning(f"Freezing is not recommended as it may break the model or reduce TorchScript inference speed.")
-        script = tr.jit.freeze(script, preserved_attrs=script.get_preserved_attributes())
+        log.warning(
+            f"Freezing is not recommended as it may break the model or reduce TorchScript inference speed."
+        )
+        script = tr.jit.freeze(
+            script, preserved_attrs=script.get_preserved_attributes()
+        )
     if optimize:
         log.warning(f"Optimizing may break the model.")
         script = tr.jit.optimize_for_inference(script)
@@ -91,13 +95,16 @@ def save_neutone_model(
     random.seed(0)
     tr.manual_seed(0)
     if not model.use_debug_mode:
-        log.warning(f"Debug mode has already been disabled for the model, please always test your model with debug "
-                    f"mode enabled.")
+        log.warning(
+            f"Debug mode has already been disabled for the model, please always test your model with debug "
+            f"mode enabled."
+        )
 
     root_dir.mkdir(exist_ok=True, parents=True)
 
     # TODO(cm): remove local import (currently prevents circular import)
     from neutone_sdk import SampleQueueWrapper
+
     sqw = SampleQueueWrapper(model)
 
     with tr.no_grad():
@@ -139,14 +146,18 @@ def save_neutone_model(
 
         log.info("Loading saved model and metadata...")
         loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
-        check_for_preserved_attributes(loaded_model, loaded_model.get_preserved_attributes())
+        check_for_preserved_attributes(
+            loaded_model, loaded_model.get_preserved_attributes()
+        )
         log.info("Testing methods used by the VST...")
         loaded_model.calc_min_delay_samples()
         loaded_model.set_daw_sample_rate_and_buffer_size(48000, 512)
         loaded_model.reset()
         loaded_model.is_resampling()
-        log.info(f"Delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
-                 f"{loaded_model.calc_min_delay_samples()}")
+        log.info(
+            f"Delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
+            f"{loaded_model.calc_min_delay_samples()}"
+        )
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")
@@ -167,7 +178,9 @@ def save_neutone_model(
             assert tr.allclose(script_model_render, loaded_model_render)
 
             log.info("Your model has been exported successfully!")
-            log.info("You can now test it using the plugin available at https://neutone.space")
+            log.info(
+                "You can now test it using the plugin available at https://neutone.space"
+            )
             log.info(
                 """Additionally, the parameter helper text is not displayed
                     correctly when using the local load functionality"""
@@ -232,9 +245,13 @@ def test_run(model: "NeutoneModel", multichannel: bool = False) -> None:
 def validate_waveform(x: Tensor, is_mono: bool) -> None:
     assert x.ndim == 2, "Audio tensor must have two dimensions: (channels, samples)"
     if is_mono:
-        assert x.shape[0] == 1, "Audio tensor should be mono and have exactly one channel"
+        assert (
+            x.shape[0] == 1
+        ), "Audio tensor should be mono and have exactly one channel"
     else:
-        assert x.shape[0] == 2, "Audio tensor should be stereo and have exactly two channels"
+        assert (
+            x.shape[0] == 2
+        ), "Audio tensor should be stereo and have exactly two channels"
     assert x.shape[-1] > x.shape[0], (
         f"The number of channels {x.shape[-2]} exceeds the number of samples "
         f"{x.shape[-1]} in the audio tensor. There might be something "
@@ -242,7 +259,11 @@ def validate_waveform(x: Tensor, is_mono: bool) -> None:
     )
 
 
-def check_for_preserved_attributes(script: ScriptModule, preserved_attrs: List[str]) -> None:
+def check_for_preserved_attributes(
+    script: ScriptModule, preserved_attrs: List[str]
+) -> None:
     for attr in preserved_attrs:
-        assert hasattr(script, attr), f"{attr}() method is missing from the TorchScript model. Did you overwrite " \
-                                        f"it and forget to add the @torch.jit.export decorator?"
+        assert hasattr(script, attr), (
+            f"{attr}() method is missing from the TorchScript model. Did you overwrite "
+            f"it and forget to add the @torch.jit.export decorator?"
+        )

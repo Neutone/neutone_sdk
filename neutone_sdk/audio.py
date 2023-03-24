@@ -5,7 +5,6 @@ import logging
 import math
 import io
 import pkgutil
-import tempfile
 from typing import Optional, List, Union
 from typing_extensions import Self
 
@@ -23,7 +22,7 @@ logging.basicConfig()
 log = logging.getLogger(__name__)
 
 
-def write_mp3(filename: str, y: tr.Tensor, sr: int, quality: float = 0):
+def write_mp3(buffer: io.BytesIO, y: tr.Tensor, sr: int, quality: float = 0):
     """
     We're using this instead of sf.write in order to change the bitrate,
     where quality goes from 0 (high) to 1 (low).
@@ -37,7 +36,9 @@ def write_mp3(filename: str, y: tr.Tensor, sr: int, quality: float = 0):
     ffi = FFI()
     quality = ffi.new("double *")
     vbr_set = ffi.new("int *")
-    with sf.SoundFile(filename, "w", channels=y.shape[0], samplerate=sr) as f:
+    with sf.SoundFile(
+        buffer, "w", channels=y.shape[0], samplerate=sr, format="mp3"
+    ) as f:
         quality[0] = 0  # 0[high]~1[low]
         # 0x1301 - SFC_SET_COMPRESSION_LEVEL
         c = sf._snd.sf_command(f._file, 0x1301, quality, 8)
@@ -75,10 +76,7 @@ class AudioSample:
 
     def to_mp3_bytes(self) -> bytes:
         buff = io.BytesIO()
-        with tempfile.NamedTemporaryFile(suffix=".mp3") as temp:
-            write_mp3(temp.name, self.audio, self.sr)
-            with open(temp.name, "rb") as f:
-                buff.write(f.read())
+        write_mp3(buff, self.audio, self.sr)
         buff.seek(0)
         return buff.read()
 

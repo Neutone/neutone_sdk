@@ -88,7 +88,7 @@ class AudioSample:
     @classmethod
     def from_bytes(cls, bytes_: bytes) -> Self:
         y, sr = sf.read(io.BytesIO(bytes_), always_2d=True)
-        return cls(tr.from_numpy(y.T), sr)
+        return cls(tr.from_numpy(y.T.astype(np.float32)), sr)
 
     @classmethod
     def from_file(cls, path: str) -> Self:

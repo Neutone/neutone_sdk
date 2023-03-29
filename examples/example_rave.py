@@ -5,15 +5,15 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
-import torchaudio
 from torch import Tensor
+import torchaudio
 
-from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
     render_audio_sample,
 )
+from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import save_neutone_model
 
 logging.basicConfig()
@@ -23,16 +23,16 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 class RAVEModelWrapper(WaveformToWaveformBase):
     def get_model_name(self) -> str:
-        return "RAVE.example"
+        return "RAVE.example"  # <-EDIT THIS
 
     def get_model_authors(self) -> List[str]:
-        return ["Author Name"]
+        return ["Author Name"]  # <-EDIT THIS
 
     def get_model_short_description(self) -> str:
-        return "RAVE model trained on some data"
+        return "RAVE model trained on xxx sounds."  # <-EDIT THIS
 
     def get_model_long_description(self) -> str:
-        return "RAVE timbre transfer model explanation. Useful for ~ sounds."
+        return "RAVE timbre transfer model trained on xxx sounds. Useful for xxx sounds."  # <-EDIT THIS
 
     def get_technical_description(self) -> str:
         return "RAVE model proposed by Caillon, Antoine et al."
@@ -54,14 +54,12 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         set to True for models in experimental stage
         (status shown on the website)
         """
-        return True
+        return True  # <-EDIT THIS
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter(
-                name="Chaos",
-                description="Magnitude of latent noise",
-                default_value=0.25,
+                name="Chaos", description="Magnitude of latent noise", default_value=0.0
             ),
             NeutoneParameter(
                 name="Z edit index",
@@ -80,19 +78,15 @@ class RAVEModelWrapper(WaveformToWaveformBase):
             ),
         ]
 
-    @torch.jit.export
     def is_input_mono(self) -> bool:
         return True
 
-    @torch.jit.export
     def is_output_mono(self) -> bool:
         return True
 
-    @torch.jit.export
     def get_native_sample_rates(self) -> List[int]:
         return [48000]
 
-    @torch.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
 
@@ -106,23 +100,19 @@ class RAVEModelWrapper(WaveformToWaveformBase):
             x = x.mean(dim=0, keepdim=True)
 
         ## parameters edit the latent variable
-        z_mean, z_std = self.model.encode_amortized(x.unsqueeze(1))
-        noise_amp = z_std * params["Chaos"] * 4
-        z = torch.randn_like(z_std) * noise_amp + z_mean
+        z = self.model.encode(x.unsqueeze(1))
+        noise_amp = params["Chaos"] * 2
+        z = torch.randn_like(z) * noise_amp + z
         # add offset / scale
         idx_z = int(
             torch.clamp(params["Z edit index"], min=0.0, max=0.99)
-            * self.model.cropped_latent_size
+            * self.model.latent_size
         )
         z_scale = params["Z scale"] * 2  # 0~1 -> 0~2
         z_offset = params["Z offset"] * 2 - 1  # 0~1 -> -1~1
         z[:, idx_z] = z[:, idx_z] * z_scale + z_offset
         out = self.model.decode(z)
         out = out.squeeze(1)
-
-        ## Use this in case the model is wrapped in an old version and
-        ## doesn't have encode_amortized
-        # out = self.model.decode(self.model.encode(x.unsqueeze(1))).squeeze(1)
         return out  # (n_channels=1, sample_size)
 
 
@@ -156,6 +146,7 @@ if __name__ == "__main__":
         soundpairs = []
         for sound in args.sounds:
             wave, sr = torchaudio.load(sound)
+            wave = wave.mean(0, keepdim=True)
             input_sample = AudioSample(wave, sr)
             rendered_sample = render_audio_sample(wrapper, input_sample)
             soundpairs.append(AudioSamplePair(input_sample, rendered_sample))
@@ -163,6 +154,7 @@ if __name__ == "__main__":
     save_neutone_model(
         wrapper,
         root_dir,
+        freeze=False,
         dump_samples=True,
         submission=True,
         audio_sample_pairs=soundpairs,

@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from argparse import ArgumentParser
@@ -5,31 +6,39 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
-from torch import Tensor
-import torchaudio
+from torch import Tensor, nn
 
+import torchaudio
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
     render_audio_sample,
 )
+
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import save_neutone_model
+from neutone_sdk.filters import FIRFilter
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-class RAVEModelWrapper(WaveformToWaveformBase):
+class FilteredRAVEv1ModelWrapper(WaveformToWaveformBase):
+    def __init__(
+        self, model: nn.Module, pre_filter: nn.Module, use_debug_mode: bool = True
+    ) -> None:
+        super().__init__(model, use_debug_mode)
+        self.pre_filter = pre_filter
+
     def get_model_name(self) -> str:
-        return "RAVE.example"  # <-EDIT THIS
+        return "RAVE.example"
 
     def get_model_authors(self) -> List[str]:
-        return ["Author Name"]  # <-EDIT THIS
+        return ["Author Name"]
 
     def get_model_short_description(self) -> str:
-        return "RAVE model trained on xxx sounds."  # <-EDIT THIS
+        return "stereo RAVE model trained on ..."
 
     def get_model_long_description(self) -> str:
         return (  # <-EDIT THIS
@@ -56,12 +65,14 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         set to True for models in experimental stage
         (status shown on the website)
         """
-        return True  # <-EDIT THIS
+        return False
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter(
-                name="Chaos", description="Magnitude of latent noise", default_value=0.0
+                name="Chaos",
+                description="Magnitude of latent noise",
+                default_value=0.0,
             ),
             NeutoneParameter(
                 name="Z edit index",
@@ -87,31 +98,42 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         return True  # <-Set to False for stereo (each channel processed separately)
 
     def get_native_sample_rates(self) -> List[int]:
-        return [48000]  # <-EDIT THIS
+        return [48000]  # <-Set to model sr during training
 
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
+
+    def calc_min_delay_samples(self) -> int:
+        # model latency should also be added if non-causal
+        return self.pre_filter.delay
 
     def get_citation(self) -> str:
         return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
 
     @torch.no_grad()
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
-        # parameters edit the latent variable
-        z = self.model.encode(x.unsqueeze(1))
-        noise_amp = params["Chaos"]
-        z = torch.randn_like(z) * noise_amp + z
+        # Apply pre-filter
+        x = self.pre_filter(x)
+        ## parameters edit the latent variable
+        z_mean, z_std = self.model.encode_amortized(x.unsqueeze(1))
+        noise_amp = z_std * params["Chaos"] * 4
+        batch, latent_dim, time = z_std.shape
+        z = (
+            torch.randn(1, latent_dim, 1, device=z_std.device).expand(batch, -1, time)
+            * noise_amp
+            + z_mean
+        )
         # add offset / scale
         idx_z = int(
             torch.clamp(params["Z edit index"], min=0.0, max=0.99)
-            * self.model.latent_size
+            * self.model.cropped_latent_size
         )
         z_scale = params["Z scale"] * 2  # 0~1 -> 0~2
         z_offset = params["Z offset"] * 2 - 1  # 0~1 -> -1~1
         z[:, idx_z] = z[:, idx_z] * z_scale + z_offset
         out = self.model.decode(z)
         out = out.squeeze(1)
-        return out  # (n_channels=1, sample_size)
+        return out
 
 
 if __name__ == "__main__":
@@ -137,7 +159,10 @@ if __name__ == "__main__":
 
     # wrap it
     model = torch.jit.load(args.input)
-    wrapper = RAVEModelWrapper(model)
+    # apply filter before model
+    # cut below 500 and above 4000 Hz
+    pf = FIRFilter([500, 4000], sample_rate=48000, filt_type="bandpass")
+    wrapper = FilteredRAVEv1ModelWrapper(model, pf)
 
     soundpairs = None
     if args.sounds is not None:

@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from argparse import ArgumentParser
@@ -5,23 +6,31 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
-from torch import Tensor
-import torchaudio
+from torch import Tensor, nn
 
+import torchaudio
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
     render_audio_sample,
 )
+
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import save_neutone_model
+from neutone_sdk.filters import FIRFilter
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-class RAVEModelWrapper(WaveformToWaveformBase):
+class FilteredRAVEModelWrapper(WaveformToWaveformBase):
+    def __init__(
+        self, model: nn.Module, pre_filter: nn.Module, use_debug_mode: bool = True
+    ) -> None:
+        super().__init__(model, use_debug_mode)
+        self.pre_filter = pre_filter
+
     def get_model_name(self) -> str:
         return "RAVE.example"  # <-EDIT THIS
 
@@ -87,19 +96,25 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         return True  # <-Set to False for stereo (each channel processed separately)
 
     def get_native_sample_rates(self) -> List[int]:
-        return [48000]  # <-EDIT THIS
+        return [48000]  # <-Set to model sr during training
 
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
+
+    def calc_min_delay_samples(self) -> int:
+        # model latency should also be added if non-causal
+        return self.pre_filter.delay
 
     def get_citation(self) -> str:
         return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
 
     @torch.no_grad()
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
+        # Apply pre-filter
+        x = self.pre_filter(x)
         # parameters edit the latent variable
         z = self.model.encode(x.unsqueeze(1))
-        noise_amp = params["Chaos"]
+        noise_amp = params["Chaos"] * 2
         z = torch.randn_like(z) * noise_amp + z
         # add offset / scale
         idx_z = int(
@@ -111,7 +126,7 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         z[:, idx_z] = z[:, idx_z] * z_scale + z_offset
         out = self.model.decode(z)
         out = out.squeeze(1)
-        return out  # (n_channels=1, sample_size)
+        return out
 
 
 if __name__ == "__main__":
@@ -137,7 +152,10 @@ if __name__ == "__main__":
 
     # wrap it
     model = torch.jit.load(args.input)
-    wrapper = RAVEModelWrapper(model)
+    # apply filter before model
+    # cut below 500 and above 4000 Hz
+    pf = FIRFilter([500, 4000], sample_rate=48000, filt_type="bandpass")
+    wrapper = FilteredRAVEModelWrapper(model, pf)
 
     soundpairs = None
     if args.sounds is not None:

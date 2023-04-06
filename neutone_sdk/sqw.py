@@ -466,6 +466,22 @@ class SampleQueueWrapper(nn.Module):
         return self.w2w_base.get_default_param_values()
 
     @tr.jit.export
+    def get_default_param_names(self) -> List[str]:
+        return self.w2w_base.get_default_param_names()
+
+    @tr.jit.export
+    def get_default_param_descriptions(self) -> List[str]:
+        return self.w2w_base.get_default_param_descriptions()
+
+    @tr.jit.export
+    def get_default_param_types(self) -> List[str]:
+        return self.w2w_base.get_default_param_types()
+
+    @tr.jit.export
+    def get_default_param_used(self) -> List[bool]:
+        return self.w2w_base.get_default_param_used()
+
+    @tr.jit.export
     def get_input_gain_default_value(self) -> float:
         return self.w2w_base.get_input_gain_default_value()
 

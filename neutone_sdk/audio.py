@@ -190,7 +190,7 @@ def render_audio_sample(
             params = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(
                 params
             )
-            params = torch.clamp(params, 0, 1)
+            params = tr.clamp(params, 0, 1)
 
         # padding and chunking parameters to match audio
         padded_params = nn.functional.pad(params, [0, padding_amount], mode="replicate")

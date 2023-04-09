@@ -56,7 +56,7 @@ class FIRFilter(nn.Module):
             filt_size // 2, -1
         )
         ir_windowed = filter_window * ir
-        self.register_buffer("ir_windowed", ir_windowed[None, :])
+        self.register_buffer("ir_windowed", ir_windowed[None, None, :])
         self.filt_size = filt_size
         self.delay = filt_size // 2  # constant group delay
         self.sample_rate = sample_rate
@@ -80,10 +80,10 @@ class FIRFilter(nn.Module):
         audio = torch.cat([self.cache[:n_channels], audio], dim=-1)
         self.cache = audio[:, -(self.filt_size - 1) :]
         filtered = F.conv1d(
-            audio.unsqueeze(0),
-            self.ir_windowed[:, None, :].expand(-1, n_channels, -1),
+            audio[:, None, :],
+            self.ir_windowed,
             padding="valid",
-        ).squeeze(0)
+        ).squeeze(1)
         return filtered
 
 

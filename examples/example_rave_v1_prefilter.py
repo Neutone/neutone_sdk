@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-class FilteredRAVEModelWrapper(WaveformToWaveformBase):
+class FilteredRAVEv1ModelWrapper(WaveformToWaveformBase):
     def __init__(
         self, model: nn.Module, pre_filter: nn.Module, use_debug_mode: bool = True
     ) -> None:
@@ -32,13 +32,13 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
         self.pre_filter = pre_filter
 
     def get_model_name(self) -> str:
-        return "RAVE.example"  # <-EDIT THIS
+        return "RAVE.example"
 
     def get_model_authors(self) -> List[str]:
-        return ["Author Name"]  # <-EDIT THIS
+        return ["Author Name"]
 
     def get_model_short_description(self) -> str:
-        return "RAVE model trained on xxx sounds."  # <-EDIT THIS
+        return "stereo RAVE model trained on ..."
 
     def get_model_long_description(self) -> str:
         return (  # <-EDIT THIS
@@ -65,12 +65,14 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
         set to True for models in experimental stage
         (status shown on the website)
         """
-        return True  # <-EDIT THIS
+        return False
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
             NeutoneParameter(
-                name="Chaos", description="Magnitude of latent noise", default_value=0.0
+                name="Chaos",
+                description="Magnitude of latent noise",
+                default_value=0.0,
             ),
             NeutoneParameter(
                 name="Z edit index",
@@ -101,10 +103,6 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
 
-    def calc_min_delay_samples(self) -> int:
-        # model latency should also be added if non-causal
-        return self.pre_filter.delay
-
     def get_citation(self) -> str:
         return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
 
@@ -112,14 +110,19 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         # Apply pre-filter
         x = self.pre_filter(x)
-        # parameters edit the latent variable
-        z = self.model.encode(x.unsqueeze(1))
-        noise_amp = params["Chaos"] * 2
-        z = torch.randn_like(z) * noise_amp + z
+        ## parameters edit the latent variable
+        z_mean, z_std = self.model.encode_amortized(x.unsqueeze(1))
+        noise_amp = z_std * params["Chaos"] * 4
+        batch, latent_dim, time = z_std.shape
+        z = (
+            torch.randn(1, latent_dim, 1, device=z_std.device).expand(batch, -1, time)
+            * noise_amp
+            + z_mean
+        )
         # add offset / scale
         idx_z = int(
             torch.clamp(params["Z edit index"], min=0.0, max=0.99)
-            * self.model.latent_size
+            * self.model.cropped_latent_size
         )
         z_scale = params["Z scale"] * 2  # 0~1 -> 0~2
         z_offset = params["Z offset"] * 2 - 1  # 0~1 -> -1~1
@@ -155,7 +158,7 @@ if __name__ == "__main__":
     # apply filter before model
     # cut below 500 and above 4000 Hz
     pf = FIRFilter([500, 4000], sample_rate=48000, filt_type="bandpass")
-    wrapper = FilteredRAVEModelWrapper(model, pf)
+    wrapper = FilteredRAVEv1ModelWrapper(model, pf)
 
     soundpairs = None
     if args.sounds is not None:

@@ -81,13 +81,13 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         ]
 
     def is_input_mono(self) -> bool:
-        return True
+        return True  # <-Set to False for stereo (each channel processed separately)
 
     def is_output_mono(self) -> bool:
-        return True
+        return True  # <-Set to False for stereo (each channel processed separately)
 
     def get_native_sample_rates(self) -> List[int]:
-        return [48000]
+        return [48000]  # <-EDIT THIS
 
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
@@ -97,11 +97,7 @@ class RAVEModelWrapper(WaveformToWaveformBase):
 
     @torch.no_grad()
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
-        # Currently VST input-output is mono, which matches RAVE.
-        if x.size(0) == 2:
-            x = x.mean(dim=0, keepdim=True)
-
-        ## parameters edit the latent variable
+        # parameters edit the latent variable
         z = self.model.encode(x.unsqueeze(1))
         noise_amp = params["Chaos"]
         z = torch.randn_like(z) * noise_amp + z
@@ -148,7 +144,6 @@ if __name__ == "__main__":
         soundpairs = []
         for sound in args.sounds:
             wave, sr = torchaudio.load(sound)
-            wave = wave.mean(0, keepdim=True)
             input_sample = AudioSample(wave, sr)
             rendered_sample = render_audio_sample(wrapper, input_sample)
             soundpairs.append(AudioSamplePair(input_sample, rendered_sample))

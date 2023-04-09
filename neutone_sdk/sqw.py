@@ -367,7 +367,7 @@ class SampleQueueWrapper(nn.Module):
                 io_bs, self.get_native_buffer_sizes()
             )
 
-        self.w2w_base.set_buffer_size(model_bs)
+        self.w2w_base.set_sample_rate_and_buffer_size(model_sr, model_bs)
         self.daw_bs = daw_bs
         self.io_bs = io_bs
         self.model_bs = model_bs

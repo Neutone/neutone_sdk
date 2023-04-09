@@ -4,6 +4,10 @@ import torch.nn.functional as F
 import math
 from typing import List
 
+"""
+Filters for pre-filtering inputs to models such as RAVE.
+"""
+
 
 class FIRFilter(nn.Module):
     def __init__(
@@ -11,8 +15,7 @@ class FIRFilter(nn.Module):
         cutoffs: List[float],
         sample_rate: int,
         filt_size: int = 257,
-        n_channels: int = 1,
-        filt_type: str = "bandpass",
+        filt_type: str = "lowpass",
     ):
         """Streamable FIR filter for pre-filtering of model inputs, etc.
 
@@ -20,7 +23,6 @@ class FIRFilter(nn.Module):
             cutoffs (List[float]): Cutoff frequencies (in Hz). 2 should be given if bandpass/stop
             sample_rate (int): Sampling rate
             filt_size (int, optional): Length of the FIR. Defaults to 257.
-            n_channels (int, optional): Number of channels of the input/output. Defaults to 1.
             filt_type (str, optional): Type of the filter (low/high/bandpass, bandstop). Defaults to "bandpass".
         """
         super().__init__()
@@ -46,7 +48,7 @@ class FIRFilter(nn.Module):
                 torch.logical_or(freqs < cutoffs[0], freqs > cutoffs[1]), 1.0, 0.0
             ).float()
         else:
-            raise ValueError(f"Unrecognized filter type {filt_type}")
+            raise ValueError(f"Unrecognized filter type: {filt_type}")
 
         # create impulse response by windowing
         ir = torch.fft.irfft(freq_resp, n=filt_size, dim=-1)
@@ -56,8 +58,9 @@ class FIRFilter(nn.Module):
         ir_windowed = filter_window * ir
         self.register_buffer("ir_windowed", ir_windowed[None, :])
         self.filt_size = filt_size
+        self.delay = filt_size // 2  # constant group delay
         self.sample_rate = sample_rate
-        self.register_buffer("cache", torch.zeros(n_channels, filt_size - 1))
+        self.register_buffer("cache", torch.zeros(2, filt_size - 1))
 
     def forward(
         self,
@@ -74,8 +77,8 @@ class FIRFilter(nn.Module):
         n_channels, orig_len = audio.shape
         # standard convolution implementation
         # pad input with cache
-        audio = torch.cat([self.cache, audio], dim=-1)
-        self.cache = audio[..., -(self.filt_size - 1) :]
+        audio = torch.cat([self.cache[:n_channels], audio], dim=-1)
+        self.cache = audio[:, -(self.filt_size - 1) :]
         filtered = F.conv1d(
             audio.unsqueeze(0),
             self.ir_windowed[:, None, :].expand(-1, n_channels, -1),
@@ -95,10 +98,10 @@ class IIRFilter(nn.Module):
         """Time-invariant IIR filter
 
         Args:
-            cutoff (float): cutoff frequency in Hz (0 < cutoff < f_nyq)
-            resonance (float): filter resonance
-            sample_rate (int): sampling rate
-            filt_type (int): filter type ('lowpass', 'highpass', 'bandpass')
+            cutoff (float): Cutoff frequency in Hz (0 < cutoff < f_nyq)
+            resonance (float): Filter resonance, controls bandwidth in case of bandpass
+            sample_rate (int): Sampling rate
+            filt_type (int): Filter type ('lowpass', 'highpass', 'bandpass')
         """
         super().__init__()
         cutoff = max(min(cutoff, sample_rate / 2 - 1e-4), 0)
@@ -115,7 +118,10 @@ class IIRFilter(nn.Module):
             self.register_buffer("mix", torch.tensor([[[0.0, 0.0, 1.0]]]))
         elif filt_type == "bandpass":
             self.register_buffer("mix", torch.tensor([[[1.0, 0.0, 0.0]]]))
+        else:
+            raise ValueError(f"Unrecognized filter type: {filt_type}")
         self.svf = torch.jit.script(_SVFLayer())
+        self.delay = 0
 
     def forward(self, audio: torch.Tensor):
         """pass through highpass filter
@@ -132,9 +138,12 @@ class IIRFilter(nn.Module):
 
 class IIRSVF(nn.Module):
     def __init__(self):
-        """time-varying SVF with IIRs"""
+        """
+        Time-varying SVF with IIRs
+        """
         super().__init__()
         self.svf = torch.jit.script(_SVFLayer())
+        self.delay = 0
 
     def forward(
         self,
@@ -147,13 +156,13 @@ class IIRSVF(nn.Module):
         """Feed into time-varying svf
 
         Args:
-            audio (torch.Tensor): input audio [batch_size (or n_channels), n_samples]
+            audio (torch.Tensor): Input audio [batch_size (or n_channels), n_samples]
             cutoff (torch.Tensor): Cutoff frequency [batch_size, n_samples, 1]
-            resonance (torch.Tensor): resonance (0 ~ 1) [batch_size, n_samples, 1]
+            resonance (torch.Tensor): Resonance (0 ~ 1), [batch_size, n_samples, 1]
             mix (torch.Tensor): Mix coeff. bp, lp and hp [batch_size, n_samples, 3] ex.) [[[1.0, 0.0, 0.0]]] = bandpass
 
         Returns:
-            audio (torch.Tensor): [batch_size (or n_channels), n_samples]
+            audio (torch.Tensor): [n_channels, n_samples]
         """
         cutoff = torch.clamp(cutoff, min=1e-4, max=sample_rate / 2 - 1e-4)
         resonance = torch.clamp(resonance, min=1e-4)
@@ -184,7 +193,7 @@ class _SVFLayer(nn.Module):
         Args:
             *** time-first, batch-second ***
             audio (torch.Tensor): [n_samples, batch_size]
-            All filter parameters are [n_samples, batch_size, 1or3]
+            All filter parameters are [n_samples, batch_size, 1 or 3 (mix)]
             g (torch.Tensor): Normalized cutoff parameter
             twoR (torch.Tensor): Damping parameter
             mix (torch.Tensor): Mixing coefficient of bp, lp and hp

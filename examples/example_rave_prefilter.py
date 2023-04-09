@@ -101,6 +101,10 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
 
+    def calc_min_delay_samples(self) -> int:
+        # model latency should also be added if non-causal
+        return self.pre_filter.delay
+
     def get_citation(self) -> str:
         return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
 

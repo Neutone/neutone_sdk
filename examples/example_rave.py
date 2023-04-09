@@ -32,7 +32,9 @@ class RAVEModelWrapper(WaveformToWaveformBase):
         return "RAVE model trained on xxx sounds."  # <-EDIT THIS
 
     def get_model_long_description(self) -> str:
-        return "RAVE timbre transfer model trained on xxx sounds. Useful for xxx sounds."  # <-EDIT THIS
+        return (  # <-EDIT THIS
+            "RAVE timbre transfer model trained on xxx sounds. Useful for xxx sounds."
+        )
 
     def get_technical_description(self) -> str:
         return "RAVE model proposed by Caillon, Antoine et al."
@@ -101,7 +103,7 @@ class RAVEModelWrapper(WaveformToWaveformBase):
 
         ## parameters edit the latent variable
         z = self.model.encode(x.unsqueeze(1))
-        noise_amp = params["Chaos"] * 2
+        noise_amp = params["Chaos"]
         z = torch.randn_like(z) * noise_amp + z
         # add offset / scale
         idx_z = int(

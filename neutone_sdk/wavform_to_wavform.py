@@ -52,6 +52,7 @@ class WaveformToWaveformBase(NeutoneModel):
         self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS, 1)
         self.model_in_buffer = tr.zeros((self.in_n_ch, 1))
         self.params_buffer = tr.zeros((self.MAX_N_PARAMS, 1))
+        self.agg_params = tr.zeros((self.MAX_N_PARAMS, 1))
 
     @abstractmethod
     def is_input_mono(self) -> bool:
@@ -170,10 +171,8 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         if self.use_debug_mode:
             assert params.ndim == 2
-        # This prevents memory allocation by re-using the space in the params tensor
-        agg_params = params[:, 0:1]
-        tr.mean(params, dim=1, keepdim=True, out=agg_params)
-        return agg_params
+        tr.mean(params, dim=1, keepdim=True, out=self.agg_params)
+        return self.agg_params
 
     def prepare_for_inference(self) -> None:
         """Prepare the wrapper and model for inference and to be converted to torchscript."""

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from typing import List
+from typing import List, Optional
 
 """
 Filters for pre-filtering inputs to models such as RAVE.
@@ -26,6 +26,22 @@ class FIRFilter(nn.Module):
             filt_type (str, optional): Type of the filter (low/high/bandpass, bandstop). Defaults to "bandpass".
         """
         super().__init__()
+        # register buffer only allowed once
+        self.register_buffer("cache", torch.zeros(2, filt_size - 1))
+        self.register_buffer("ir_windowed", torch.empty(1, 1, filt_size))
+        self.set_parameters(cutoffs, sample_rate, filt_size, filt_type)
+
+    def set_parameters(
+        self,
+        cutoffs: Optional[List[float]] = None,
+        sample_rate: Optional[int] = None,
+        filt_size: Optional[int] = None,
+        filt_type: Optional[str] = None,
+    ):
+        cutoffs = self.cutoffs if cutoffs is None else cutoffs
+        sample_rate = self.sample_rate if sample_rate is None else sample_rate
+        filt_size = self.filt_size if filt_size is None else filt_size
+        filt_type = self.filt_type if filt_type is None else filt_type
         if len(cutoffs) == 2:
             if filt_type in ["highpass", "lowpass"]:
                 raise ValueError("only 1 cutoff value supported for this filter type")
@@ -49,18 +65,19 @@ class FIRFilter(nn.Module):
             ).float()
         else:
             raise ValueError(f"Unrecognized filter type: {filt_type}")
-
         # create impulse response by windowing
         ir = torch.fft.irfft(freq_resp, n=filt_size, dim=-1)
         filter_window = torch.kaiser_window(filt_size, dtype=torch.float32).roll(
             filt_size // 2, -1
         )
-        ir_windowed = filter_window * ir
-        self.register_buffer("ir_windowed", ir_windowed[None, None, :])
-        self.filt_size = filt_size
-        self.delay = filt_size // 2  # constant group delay
+        self.ir_windowed = (filter_window * ir)[None, None, :].to(
+            self.ir_windowed.device
+        )
+        self.cutoffs = cutoffs
         self.sample_rate = sample_rate
-        self.register_buffer("cache", torch.zeros(2, filt_size - 1))
+        self.filt_size = filt_size
+        self.filt_type = filt_type
+        self.delay = filt_size // 2  # constant group delay
 
     def forward(
         self,
@@ -104,23 +121,44 @@ class IIRFilter(nn.Module):
             filt_type (int): Filter type ('lowpass', 'highpass', 'bandpass')
         """
         super().__init__()
-        cutoff = max(min(cutoff, sample_rate / 2 - 1e-4), 0)
+        # register buffer only allowed once
+        self.register_buffer("g", torch.empty(1, 1, 1))
+        self.register_buffer("twoR", torch.empty(1, 1, 1) / resonance)
+        self.register_buffer("mix", torch.empty(1, 1, 3))
+        self.set_parameters(cutoff, resonance, sample_rate, filt_type)
+        self.svf = _SVFLayer()
+
+    def set_parameters(
+        self,
+        cutoff: Optional[float] = None,
+        resonance: Optional[float] = None,
+        sample_rate: Optional[int] = None,
+        filt_type: Optional[str] = None,
+    ):
+        cutoff = self.cutoff if cutoff is None else cutoff
+        resonance = self.resonance if resonance is None else resonance
+        sample_rate = self.sample_rate if sample_rate is None else sample_rate
+        filt_type = self.filt_type if filt_type is None else filt_type
+
+        cutoff = max(min(cutoff, sample_rate / 2 - 1e-4), 1e-4)
         resonance = max(resonance, 1e-4)
-        self.register_buffer(
-            # frequency warping
-            "g",
-            torch.ones(1, 1, 1) * math.tan(math.pi / sample_rate * cutoff),
+        # frequency warping
+        self.g = torch.ones(1, 1, 1, device=self.g.device) * math.tan(
+            math.pi / sample_rate * cutoff
         )
-        self.register_buffer("twoR", torch.ones(1, 1, 1) / resonance)
+        self.twoR = torch.ones(1, 1, 1, device=self.twoR.device) / resonance
         if filt_type == "lowpass":
-            self.register_buffer("mix", torch.tensor([[[0.0, 1.0, 0.0]]]))
+            self.mix = torch.tensor([[[0.0, 1.0, 0.0]]], device=self.mix.device)
         elif filt_type == "highpass":
-            self.register_buffer("mix", torch.tensor([[[0.0, 0.0, 1.0]]]))
+            self.mix = torch.tensor([[[0.0, 0.0, 1.0]]], device=self.mix.device)
         elif filt_type == "bandpass":
-            self.register_buffer("mix", torch.tensor([[[1.0, 0.0, 0.0]]]))
+            self.mix = torch.tensor([[[1.0, 0.0, 0.0]]], device=self.mix.device)
         else:
             raise ValueError(f"Unrecognized filter type: {filt_type}")
-        self.svf = torch.jit.script(_SVFLayer())
+        self.cutoff = cutoff
+        self.resonance = resonance
+        self.sample_rate = sample_rate
+        self.filt_type = filt_type
         self.delay = 0
 
     def forward(self, audio: torch.Tensor):
@@ -142,7 +180,7 @@ class IIRSVF(nn.Module):
         Time-varying SVF with IIRs
         """
         super().__init__()
-        self.svf = torch.jit.script(_SVFLayer())
+        self.svf = _SVFLayer()
         self.delay = 0
 
     def forward(
@@ -181,6 +219,7 @@ class _SVFLayer(nn.Module):
     def __init__(self):
         super().__init__()
         self.register_buffer("state", torch.zeros(1, 2))
+        self.register_buffer("Y", torch.empty(4096, 2, 2))
 
     def forward(
         self,
@@ -211,8 +250,9 @@ class _SVFLayer(nn.Module):
         gHB = g * T * torch.cat([torch.ones_like(g), g], dim=-1)
         # [n_samples, batch_size, 2]
         gHBx = gHB * audio.unsqueeze(-1)
-
-        Y = torch.empty(seq_len, batch_size, 2, device=audio.device)
+        if seq_len > self.Y.shape[0]:
+            self.Y = torch.empty(seq_len, 2, 2, device=self.Y.device)
+        Y = self.Y[:seq_len, :batch_size, :]
         # initialize filter state
         state = self.state.expand(batch_size, -1)
         for t in range(seq_len):
@@ -228,5 +268,5 @@ class _SVFLayer(nn.Module):
             + mix[:, :, 1] * Y[:, :, 1]
             + mix[:, :, 2] * y_hps
         )
-        y_mixed = y_mixed.permute(1, 0).contiguous()
+        y_mixed = y_mixed.permute(1, 0)
         return y_mixed

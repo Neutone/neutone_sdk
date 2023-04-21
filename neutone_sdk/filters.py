@@ -1,6 +1,7 @@
 import math
 from typing import List, Optional
 from enum import Enum
+import warnings
 
 import torch
 import torch.nn as nn
@@ -23,7 +24,6 @@ class FIRFilter(nn.Module):
         self,
         filt_type: FilterType,
         cutoffs: List[float],
-        sample_rate: int,
         filt_size: int = 257,
     ):
         """Streamable FIR filter for pre-filtering of model inputs, etc.
@@ -38,7 +38,10 @@ class FIRFilter(nn.Module):
         # register buffer only allowed once
         self.register_buffer("cache", torch.zeros(2, filt_size - 1))
         self.register_buffer("ir_windowed", torch.empty(1, 1, filt_size))
-        self.set_parameters(filt_type, cutoffs, sample_rate, filt_size)
+        # Pass in fake sample rate for filter
+        # Sample rate should be automatically overwritten by calling
+        # set_parameters() from w2wbase.set_model_sample_rate_and_buffer_size()
+        self.set_parameters(filt_type, cutoffs, 48000, filt_size)
 
     def set_parameters(
         self,
@@ -52,12 +55,15 @@ class FIRFilter(nn.Module):
         sample_rate = self.sample_rate if sample_rate is None else sample_rate
         filt_size = self.filt_size if filt_size is None else filt_size
         if len(cutoffs) == 2:
-            if filt_type in [FilterType.HIGHPASS, FilterType.LOWPASS]:
+            if filt_type.value in [FilterType.HIGHPASS.value, FilterType.LOWPASS.value]:
                 raise ValueError(
                     f"only 1 cutoff value supported for filter type: {filt_type}"
                 )
         else:
-            if filt_type in [FilterType.BANDPASS, FilterType.BANDSTOP]:
+            if filt_type.value in [
+                FilterType.BANDPASS.value,
+                FilterType.BANDSTOP.value,
+            ]:
                 raise ValueError(
                     f"2 cutoff values (low, high) needed for filter type: {filt_type}"
                 )
@@ -76,6 +82,8 @@ class FIRFilter(nn.Module):
             freq_resp = torch.where(
                 torch.logical_or(freqs < cutoffs[0], freqs > cutoffs[1]), 1.0, 0.0
             ).float()
+        else:
+            raise ValueError(f"Unrecognized filter type: {filt_type.value}")
         # create impulse response by windowing
         ir = torch.fft.irfft(freq_resp, n=filt_size, dim=-1)
         filter_window = torch.kaiser_window(filt_size, dtype=torch.float32).roll(
@@ -121,7 +129,6 @@ class IIRFilter(nn.Module):
         filt_type: FilterType,
         cutoff: float,
         resonance: float,
-        sample_rate: int,
     ):
         """Time-invariant IIR filter
 
@@ -136,7 +143,10 @@ class IIRFilter(nn.Module):
         self.register_buffer("g", torch.empty(1, 1, 1))
         self.register_buffer("twoR", torch.empty(1, 1, 1) / resonance)
         self.register_buffer("mix", torch.empty(1, 1, 3))
-        self.set_parameters(filt_type, cutoff, resonance, sample_rate)
+        # Pass in fake sample rate for filter
+        # Sample rate should be automatically overwritten by calling
+        # set_parameters() from w2wbase.set_model_sample_rate_and_buffer_size()
+        self.set_parameters(filt_type, cutoff, resonance, 48000)
         self.svf = _SVFLayer()
 
     def set_parameters(

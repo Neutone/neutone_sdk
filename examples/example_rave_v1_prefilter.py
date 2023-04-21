@@ -25,11 +25,11 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class FilteredRAVEv1ModelWrapper(WaveformToWaveformBase):
-    def __init__(
-        self, model: nn.Module, pre_filter: nn.Module, use_debug_mode: bool = True
-    ) -> None:
+    def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         super().__init__(model, use_debug_mode)
-        self.pre_filter = pre_filter
+        self.pre_filter = FIRFilter(
+            FilterType.BANDPASS, cutoffs=[500.0, 4000.0], filt_size=257
+        )
 
     def get_model_name(self) -> str:
         return "RAVE.example"
@@ -107,6 +107,13 @@ class FilteredRAVEv1ModelWrapper(WaveformToWaveformBase):
         # model latency should also be added if non-causal
         return self.pre_filter.delay
 
+    def set_model_sample_rate_and_buffer_size(
+        self, sample_rate: int, n_samples: int
+    ) -> bool:
+        # Set prefilter samplerate to current sample rate
+        self.pre_filter.set_parameters(sample_rate=sample_rate)
+        return True
+
     def get_citation(self) -> str:
         return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
 
@@ -159,12 +166,7 @@ if __name__ == "__main__":
 
     # wrap it
     model = torch.jit.load(args.input)
-    # filter to be applied before model
-    # cut below 500 and above 4000 Hz
-    pre_filter = FIRFilter(
-        FilterType.BANDPASS, cutoffs=[500, 4000], sample_rate=48000, filt_size=257
-    )
-    wrapper = FilteredRAVEv1ModelWrapper(model, pre_filter)
+    wrapper = FilteredRAVEv1ModelWrapper(model)
 
     soundpairs = None
     if args.sounds is not None:

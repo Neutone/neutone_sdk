@@ -17,7 +17,7 @@ from neutone_sdk.audio import (
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import save_neutone_model
-from neutone_sdk.filters import FIRFilter
+from neutone_sdk.filters import FIRFilter, IIRFilter, FilterType
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -152,10 +152,12 @@ if __name__ == "__main__":
 
     # wrap it
     model = torch.jit.load(args.input)
-    # apply filter before model
+    # filter to be applied before model
     # cut below 500 and above 4000 Hz
-    pf = FIRFilter([500, 4000], sample_rate=48000, filt_type="bandpass")
-    wrapper = FilteredRAVEModelWrapper(model, pf)
+    pre_filter = FIRFilter(
+        FilterType.BANDPASS, cutoffs=[500, 4000], sample_rate=48000, filt_size=257
+    )
+    wrapper = FilteredRAVEModelWrapper(model, pre_filter)
 
     soundpairs = None
     if args.sounds is not None:

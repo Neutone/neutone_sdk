@@ -29,11 +29,10 @@ class ClipperModel(nn.Module):
 
 
 class ClipperModelWrapper(WaveformToWaveformBase):
-    def __init__(
-        self, model: nn.Module, pre_filter: nn.Module, use_debug_mode: bool = True
-    ) -> None:
+    def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         super().__init__(model, use_debug_mode)
-        self.pre_filter = pre_filter
+        # filter to be applied before model
+        self.pre_filter = FIRFilter(FilterType.LOWPASS, cutoffs=[1000.0], filt_size=257)
 
     def get_model_name(self) -> str:
         return "clipper"
@@ -110,10 +109,6 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", default="export_model")
     args = parser.parse_args()
     root_dir = pathlib.Path(args.output)
-    # filter to be applied before model
-    pre_filter = FIRFilter(
-        FilterType.LOWPASS, cutoffs=[1000.0], sample_rate=48000, filt_size=257
-    )
     model = ClipperModel()
-    wrapper = ClipperModelWrapper(model, pre_filter)
+    wrapper = ClipperModelWrapper(model)
     save_neutone_model(wrapper, root_dir, dump_samples=True, submission=True)

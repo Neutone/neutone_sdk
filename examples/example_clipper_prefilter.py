@@ -8,7 +8,7 @@ from torch import Tensor
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import save_neutone_model
-from neutone_sdk.filters import FIRFilter, IIRFilter
+from neutone_sdk.filters import FIRFilter, IIRFilter, FilterType
 
 """
 Example wrapper script for prefilter + models with variable sample rate.
@@ -110,7 +110,10 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", default="export_model")
     args = parser.parse_args()
     root_dir = pathlib.Path(args.output)
-    pre_filter = FIRFilter([1000.0], 48000, filt_size=257, filt_type="lowpass")
+    # filter to be applied before model
+    pre_filter = FIRFilter(
+        FilterType.LOWPASS, cutoffs=[1000.0], sample_rate=48000, filt_size=257
+    )
     model = ClipperModel()
     wrapper = ClipperModelWrapper(model, pre_filter)
     save_neutone_model(wrapper, root_dir, dump_samples=True, submission=True)

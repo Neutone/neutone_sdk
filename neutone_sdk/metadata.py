@@ -180,7 +180,7 @@ def validate_metadata(metadata: dict) -> bool:
     # Check links return 200
     for link in metadata["technical_links"].values():
         try:
-            code = requests.head(link).status_code
+            code = requests.head(link, allow_redirects=True).status_code
             if code != 200:
                 log.error(f"Cannot access link {link}")
         except requests.exceptions.ConnectionError:

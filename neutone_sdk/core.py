@@ -227,6 +227,22 @@ class NeutoneModel(ABC, nn.Module):
         return self.default_param_values
 
     @tr.jit.export
+    def get_default_param_names(self) -> List[str]:
+        return [x.name for x in self.get_neutone_parameters()]
+
+    @tr.jit.export
+    def get_default_param_descriptions(self) -> List[str]:
+        return [x.description for x in self.get_neutone_parameters()]
+
+    @tr.jit.export
+    def get_default_param_types(self) -> List[str]:
+        return [x.type.value for x in self.get_neutone_parameters()]
+
+    @tr.jit.export
+    def get_default_param_used(self) -> List[bool]:
+        return [x.used for x in self.get_neutone_parameters()]
+
+    @tr.jit.export
     def get_wet_default_value(self) -> float:
         return 1.0
 
@@ -250,6 +266,10 @@ class NeutoneModel(ABC, nn.Module):
             "model",  # nn.Module
             "default_param_values",  # Registered buffer
             "get_default_param_values",
+            "get_default_param_names",
+            "get_default_param_descriptions",
+            "get_default_param_types",
+            "get_default_param_used",
             "get_wet_default_value",
             "get_dry_default_value",
             "get_input_gain_default_value",

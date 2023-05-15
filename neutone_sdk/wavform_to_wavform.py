@@ -52,6 +52,7 @@ class WaveformToWaveformBase(NeutoneModel):
         self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS, 1)
         self.model_in_buffer = tr.zeros((self.in_n_ch, 1))
         self.params_buffer = tr.zeros((self.MAX_N_PARAMS, 1))
+        self.agg_params = tr.zeros((self.MAX_N_PARAMS, 1))
 
     @abstractmethod
     def is_input_mono(self) -> bool:
@@ -131,12 +132,15 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         return 0
 
-    def set_model_buffer_size(self, n_samples: int) -> bool:
+    def set_model_sample_rate_and_buffer_size(
+        self, sample_rate: int, n_samples: int
+    ) -> bool:
         """
-        If the model supports dynamic buffer size resizing, add the
+        If the model supports dynamic sample rate or buffer size resizing, add the
         functionality here.
 
         Args:
+            sample_rate: The sample rate to use.
             n_samples: The number of samples to resize the buffer to.
 
         Returns:
@@ -167,10 +171,8 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         if self.use_debug_mode:
             assert params.ndim == 2
-        # This prevents memory allocation by re-using the space in the params tensor
-        agg_params = params[:, 0:1]
-        tr.mean(params, dim=1, keepdim=True, out=agg_params)
-        return agg_params
+        tr.mean(params, dim=1, keepdim=True, out=self.agg_params)
+        return self.agg_params
 
     def prepare_for_inference(self) -> None:
         """Prepare the wrapper and model for inference and to be converted to torchscript."""
@@ -212,7 +214,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 # python (because the SQW already sets the buffer size in its constructor when using the VST or SQW)
                 assert self.curr_bs != -1, (
                     "Model uses a look-behind buffer, but the incoming buffer size has not "
-                    "been set. Be sure to call `set_buffer_size` before using the model."
+                    "been set. Be sure to call `set_sample_rate_and_buffer_size` before using the model."
                 )
 
         if self.get_look_behind_samples():
@@ -266,16 +268,18 @@ class WaveformToWaveformBase(NeutoneModel):
         return 0
 
     @tr.jit.export
-    def set_buffer_size(self, n_samples: int) -> bool:
+    def set_sample_rate_and_buffer_size(self, sample_rate: int, n_samples: int) -> bool:
         """
-        Sets the buffer size of the wrapper.
-        This should not be overwritten by SDK users, instead please check out the 'set_model_buffer_size' method.
+        Sets the sample_rate and buffer size of the wrapper.
+        This should not be overwritten by SDK users, instead please check out
+        the 'set_model_sample_rate_and_buffer_size' method.
 
         Args:
+            sample_rate: The sample rate to use.
             n_samples: The number of samples to use.
 
         Returns:
-            bool: True if 'set_model_buffer_size' is implemented and successful, otherwise False.
+            bool: True if 'set_model_sample_rate_and_buffer_size' is implemented and successful, otherwise False.
         """
         if self.use_debug_mode:
             if self.get_native_buffer_sizes():
@@ -298,7 +302,7 @@ class WaveformToWaveformBase(NeutoneModel):
                     1, queue_len
                 )
 
-        return self.set_model_buffer_size(n_samples)
+        return self.set_model_sample_rate_and_buffer_size(sample_rate, n_samples)
 
     @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
@@ -312,8 +316,7 @@ class WaveformToWaveformBase(NeutoneModel):
         This method should only be used when testing the wrapper in the VST without the SampleQueueWrapper.
         It can be ignored by SDK users.
         """
-        # w2w only supports changing buffer size
-        self.set_buffer_size(daw_buffer_size)
+        self.set_sample_rate_and_buffer_size(daw_sr, daw_buffer_size)
 
     @tr.jit.export
     def reset(self) -> bool:
@@ -342,7 +345,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 "get_native_buffer_sizes",
                 "is_resampling",
                 "calc_min_delay_samples",
-                "set_buffer_size",
+                "set_sample_rate_and_buffer_size",
                 "set_daw_sample_rate_and_buffer_size",
                 "reset",
                 "get_preserved_attributes",

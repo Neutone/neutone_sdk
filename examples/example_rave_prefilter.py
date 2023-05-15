@@ -17,7 +17,7 @@ from neutone_sdk.audio import (
 
 from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.utils import save_neutone_model
-from neutone_sdk.filters import FIRFilter
+from neutone_sdk.filters import FIRFilter, IIRFilter, FilterType
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -25,11 +25,13 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class FilteredRAVEModelWrapper(WaveformToWaveformBase):
-    def __init__(
-        self, model: nn.Module, pre_filter: nn.Module, use_debug_mode: bool = True
-    ) -> None:
+    def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         super().__init__(model, use_debug_mode)
-        self.pre_filter = pre_filter
+        # filter to be applied before model
+        # cut below 500 and above 4000 Hz
+        self.pre_filter = FIRFilter(
+            FilterType.BANDPASS, cutoffs=[500.0, 4000.0], filt_size=257
+        )
 
     def get_model_name(self) -> str:
         return "RAVE.example"  # <-EDIT THIS
@@ -105,6 +107,13 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
         # model latency should also be added if non-causal
         return self.pre_filter.delay
 
+    def set_model_sample_rate_and_buffer_size(
+        self, sample_rate: int, n_samples: int
+    ) -> bool:
+        # Set prefilter samplerate to current sample rate
+        self.pre_filter.set_parameters(sample_rate=sample_rate)
+        return True
+
     def get_citation(self) -> str:
         return """Caillon, A., & Esling, P. (2021). RAVE: A variational autoencoder for fast and high-quality neural audio synthesis. arXiv preprint arXiv:2111.05011."""
 
@@ -152,10 +161,7 @@ if __name__ == "__main__":
 
     # wrap it
     model = torch.jit.load(args.input)
-    # apply filter before model
-    # cut below 500 and above 4000 Hz
-    pf = FIRFilter([500, 4000], sample_rate=48000, filt_type="bandpass")
-    wrapper = FilteredRAVEModelWrapper(model, pf)
+    wrapper = FilteredRAVEModelWrapper(model)
 
     soundpairs = None
     if args.sounds is not None:

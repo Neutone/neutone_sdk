@@ -1,4 +1,5 @@
 import copy
+import io
 import json
 import logging
 import os
@@ -113,7 +114,13 @@ def save_neutone_model(
 
         # We need to keep a copy because some models still don't implement reset
         # properly and when rendering the samples we might create unwanted state.
-        script_copy = copy.deepcopy(script)
+        # 
+        # We used to deepcopy but we found it breaks some models
+        # script_copy = copy.deepcopy(script)
+        buf = io.BytesIO()
+        tr.jit.save(script, buf)
+        buf.seek(0)
+        script_copy = tr.jit.load(buf)
 
         log.info("Extracting metadata...")
         metadata = script.to_metadata()._asdict()

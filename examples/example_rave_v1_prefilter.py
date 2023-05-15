@@ -92,10 +92,10 @@ class FilteredRAVEv1ModelWrapper(WaveformToWaveformBase):
         ]
 
     def is_input_mono(self) -> bool:
-        return True  # <-Set to False for stereo (each channel processed separately)
+        return False  # <-Set to False for stereo (each channel processed separately)
 
     def is_output_mono(self) -> bool:
-        return True  # <-Set to False for stereo (each channel processed separately)
+        return False  # <-Set to False for stereo (each channel processed separately)
 
     def get_native_sample_rates(self) -> List[int]:
         return [48000]  # <-Set to model sr during training
@@ -157,7 +157,11 @@ if __name__ == "__main__":
     model = torch.jit.load(args.input)
     # apply filter before model
     # cut below 500 and above 4000 Hz
-    pf = FIRFilter([500, 4000], sample_rate=48000, filt_type="bandpass")
+    pf = FIRFilter([40, 8000], sample_rate=48000, filt_type="bandpass") # jvoice
+    #pf = FIRFilter([400], sample_rate=48000, filt_type="highpass") #bulgaria
+    #pf = FIRFilter([50, 900], sample_rate=48000, filt_type="bandpass") # marimba
+    #pf = FIRFilter([50, 8000], sample_rate=48000, filt_type="bandpass") #choir/chants
+    #pf = FIRFilter([50, 10000], sample_rate=48000, filt_type="bandpass") #kora
     wrapper = FilteredRAVEv1ModelWrapper(model, pf)
 
     soundpairs = None

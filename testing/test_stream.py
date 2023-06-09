@@ -27,6 +27,7 @@ class StreamConv1dTests(unittest.TestCase):
                 ca_conv = StreamConv1d(
                     4, 8, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
                 xs = torch.split(x, size, -1)
@@ -56,6 +57,7 @@ class StreamConv1dTests(unittest.TestCase):
                 ca_conv = StreamConv1d(
                     4, 8, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
                 xs = torch.split(x, size, -1)
@@ -88,6 +90,7 @@ class StreamConv1dTests(unittest.TestCase):
                 ca_conv = StreamConv1d(
                     4, 8, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
                 xs = torch.split(x, size, -1)
@@ -118,6 +121,7 @@ class StreamConv1dTests(unittest.TestCase):
                 ca_conv = StreamConv1d(
                     4, 8, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
                 ca_conv = torch.jit.script(ca_conv)
@@ -158,6 +162,7 @@ class CachedConvTransposeTests(unittest.TestCase):
                 ca_conv = StreamConvTranspose1d(
                     1, 1, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv._bias = gt_conv.bias
                 xs = torch.split(x, size, -1)
@@ -190,6 +195,7 @@ class CachedConvTransposeTests(unittest.TestCase):
                 ca_conv = StreamConvTranspose1d(
                     1, 1, k, stride=s, padding=(p, p), dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv._bias = gt_conv.bias
                 xs = torch.split(x, size, -1)
@@ -222,6 +228,7 @@ class CachedConvTransposeTests(unittest.TestCase):
                 ca_conv = StreamConvTranspose1d(
                     1, 1, k, stride=s, padding=(p, p), dilation=d, groups=1, bias=True
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv._bias = gt_conv.bias
                 ca_conv = torch.jit.script(ca_conv)
@@ -258,12 +265,14 @@ class AlignBranchesTest(unittest.TestCase):
                 ca_conv = StreamConv1d(
                     4, 4, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
                 res = AlignBranches(
                     ca_conv,
                     nn.Identity(),
                 )
+                res.stream()
                 xs = torch.split(x, size, -1)
                 chunks_y = []
                 sizes_y = []
@@ -295,12 +304,14 @@ class AlignBranchesTest(unittest.TestCase):
                 ca_conv = StreamConv1d(
                     4, 4, k, stride=s, padding=pad, dilation=d, groups=1
                 ).eval()
+                ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
                 res = AlignBranches(
                     ca_conv,
                     nn.Identity(),
                 )
+                res.stream()
                 res = torch.jit.script(res, x)
                 xs = torch.split(x, size, -1)
                 chunks_y = []

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple
 import math
+import warnings
 
 EVAL_MAX_BATCH_SIZE = 8
 
@@ -30,6 +31,14 @@ def get_same_pads(kernel_size: int, stride: int = 1, dilation=1, mode="causal"):
         raise ValueError(
             f"Convolution padding mode: {mode} not recognized. Only 'causal' and 'noncausal' are supported"
         )
+
+
+def switch_streaming_mode(module: nn.Module, is_streaming: bool = True):
+    for name, m in module.named_children():
+        if len(list(m.children())) > 0:
+            switch_streaming_mode(m)
+        if isinstance(m, (StreamConv1d, StreamConvTranspose1d, AlignBranches)):
+            m.stream(is_streaming)
 
 
 class StreamConv1d(nn.Conv1d):
@@ -66,6 +75,12 @@ class StreamConv1d(nn.Conv1d):
         self.register_buffer(
             "cache", torch.zeros(EVAL_MAX_BATCH_SIZE, in_channels, self.pads[0])
         )  # initialized with zero padding
+        self.streaming = False
+
+    def stream(self, mode: bool = True):
+        if self.training and mode:
+            warnings.warn("Module in streaming mode and training mode")
+        self.streaming = mode
 
     def get_n_frames(self, input_length: int) -> float:
         # data with size L allows for (L-K)//s conv ops
@@ -93,7 +108,7 @@ class StreamConv1d(nn.Conv1d):
         return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if not self.training:
+        if self.streaming:
             x = self.cached_pad(x)
             return F.conv1d(
                 x,
@@ -187,9 +202,15 @@ class StreamConvTranspose1d(nn.ConvTranspose1d):
         self._bias: torch.Tensor = self.bias if self.use_bias else torch.empty(0)
         self.init: bool = True
         self.batch_size: int = EVAL_MAX_BATCH_SIZE
+        self.streaming = False
+
+    def stream(self, mode: bool = True):
+        if self.training and mode:
+            warnings.warn("Module in streaming mode and training mode")
+        self.streaming = mode
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if not self.training:
+        if self.streaming:
             next_pos = self.stride[0] * x.shape[-1]  # head of next conv
             self.batch_size = x.shape[0]
             out = nn.functional.conv_transpose1d(
@@ -258,30 +279,41 @@ class AlignBranches(nn.Module):
         self.cached = [False for i in range(len(branches))]
         self.caches = [torch.empty(0) for i in range(len(branches))]
         self.has_flush: Tuple[bool] = [hasattr(b, "flush") for b in branches]
+        self.streaming = False
+
+    def stream(self, mode: bool = True):
+        if self.training and mode:
+            warnings.warn("Module in streaming mode and training mode")
+        self.streaming = mode
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        outs: List[torch.Tensor] = []
-        ys = [branch(x) for branch in self.branches]
-        lengths = [y.shape[-1] for y in ys]
-        l_min = min(lengths)
-        for i, y in enumerate(ys):
-            if self.cached[i]:
-                y_cache_len = l_min - self.caches[i].shape[-1]
-                if y_cache_len > 0:  # output uses cache and y
-                    out = y[..., :y_cache_len]
-                    outs.append(torch.cat([self.caches[i], out], dim=-1))
-                    self.caches[i] = y[..., y_cache_len:]
-                    self.cached[i] = True
-                else:  # output is covered by cache
-                    out = self.caches[i][..., :l_min]
+        if self.streaming:
+            outs: List[torch.Tensor] = []
+            ys = [branch(x) for branch in self.branches]
+            lengths = [y.shape[-1] for y in ys]
+            l_min = min(lengths)
+            for i, y in enumerate(ys):
+                if self.cached[i]:
+                    y_cache_len = l_min - self.caches[i].shape[-1]
+                    if y_cache_len > 0:  # output uses cache and y
+                        out = y[..., :y_cache_len]
+                        outs.append(torch.cat([self.caches[i], out], dim=-1))
+                        self.caches[i] = y[..., y_cache_len:]
+                        self.cached[i] = True
+                    else:  # output is covered by cache
+                        out = self.caches[i][..., :l_min]
+                        outs.append(out)
+                        # remove used cache and add y
+                        self.caches[i] = torch.cat(
+                            [self.caches[i][..., l_min:], y], dim=-1
+                        )
+                else:
+                    out = y[..., :l_min]
+                    self.caches[i] = y[..., l_min:]
                     outs.append(out)
-                    # remove used cache and add y
-                    self.caches[i] = torch.cat([self.caches[i][..., l_min:], y], dim=-1)
-            else:
-                out = y[..., :l_min]
-                self.caches[i] = y[..., l_min:]
-                outs.append(out)
-            self.cached[i] = True
+                self.cached[i] = True
+        else:
+            outs = [branch(x) for branch in self.branches]
         return outs
 
     # @torch.jit.export # flush currently doesn't work with torchscript

@@ -268,24 +268,25 @@ class AlignBranchesTest(unittest.TestCase):
                 ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
-                res = AlignBranches(
-                    ca_conv,
-                    nn.Identity(),
-                )
+                res = AlignBranches(2)
                 res.stream()
                 xs = torch.split(x, size, -1)
                 chunks_y = []
                 sizes_y = []
                 for chunk in xs:
-                    chunk_net, chunk_res = res(chunk)
+                    chunk_net, chunk_res = res([ca_conv(chunk), chunk])
                     chunk_y = chunk_net + chunk_res
                     chunks_y.append(chunk_y)
                     sizes_y.append(chunk_y.shape[-1])
                 print("align branches test_res chunk_sizes:\n", sizes_y)
-                flush_net, flush_res = res.flush()
-                chunks_y.append(flush_net + flush_res)
+                # flush_net, flush_res = res.flush()
+                # chunks_y.append(flush_net + flush_res)
                 y_cached = torch.cat(chunks_y, dim=-1)
-                self.assertTrue(torch.allclose(y_true, y_cached, atol=1e-6))
+                self.assertTrue(
+                    torch.allclose(
+                        y_true[..., : y_cached.shape[-1]], y_cached, atol=1e-6
+                    )
+                )
 
     def test_res_script(self):
         # use convs that preserve (when not split and cached) size
@@ -307,17 +308,14 @@ class AlignBranchesTest(unittest.TestCase):
                 ca_conv.stream()
                 ca_conv.weight = gt_conv.weight
                 ca_conv.bias = gt_conv.bias
-                res = AlignBranches(
-                    ca_conv,
-                    nn.Identity(),
-                )
+                res = AlignBranches(2)
                 res.stream()
                 res = torch.jit.script(res, x)
                 xs = torch.split(x, size, -1)
                 chunks_y = []
                 sizes_y = []
                 for chunk in xs:
-                    chunk_net, chunk_res = res(chunk)
+                    chunk_net, chunk_res = res([ca_conv(chunk), chunk])
                     chunk_y = chunk_net + chunk_res
                     chunks_y.append(chunk_y)
                     sizes_y.append(chunk_y.shape[-1])

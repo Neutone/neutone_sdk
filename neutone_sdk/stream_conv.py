@@ -273,12 +273,11 @@ class AlignBranches(nn.Module):
     Ex.) First output of non causal padding is shorter
     """
 
-    def __init__(self, *branches):
+    def __init__(self, num_branches):
         super().__init__()
-        self.branches = nn.ModuleList(branches)
-        self.cached = [False for i in range(len(branches))]
-        self.caches = [torch.empty(0) for i in range(len(branches))]
-        self.has_flush: Tuple[bool] = [hasattr(b, "flush") for b in branches]
+        self.num_branches = num_branches
+        self.cached = [False for i in range(num_branches)]
+        self.caches = [torch.empty(0) for i in range(num_branches)]
         self.streaming = False
 
     def stream(self, mode: bool = True):
@@ -286,10 +285,9 @@ class AlignBranches(nn.Module):
             warnings.warn("Module in streaming mode and training mode")
         self.streaming = mode
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, ys: List[torch.Tensor]) -> List[torch.Tensor]:
         if self.streaming:
             outs: List[torch.Tensor] = []
-            ys = [branch(x) for branch in self.branches]
             lengths = [y.shape[-1] for y in ys]
             l_min = min(lengths)
             for i, y in enumerate(ys):
@@ -312,18 +310,6 @@ class AlignBranches(nn.Module):
                     self.caches[i] = y[..., l_min:]
                     outs.append(out)
                 self.cached[i] = True
+            return outs
         else:
-            outs = [branch(x) for branch in self.branches]
-        return outs
-
-    # @torch.jit.export # flush currently doesn't work with torchscript
-    def flush(self) -> List[torch.Tensor]:
-        outs = []
-        for i, b in enumerate(self.branches):
-            if self.has_flush[i]:
-                # print(self.has_flush[i], b, "hasflush")
-                outs.append(torch.cat([self.caches[i], b.flush()], dim=-1))
-            else:
-                # print(self.has_flush[i], b, "noflush")
-                outs.append(torch.cat([self.caches[i]], dim=-1))
-        return outs
+            return ys

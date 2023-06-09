@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple
+import math
 
-MAX_BATCH_SIZE = 8
+EVAL_MAX_BATCH_SIZE = 8
 
 
-def calculate_pads(kernel_size, dilation=1, mode="causal"):
+def get_same_pads(kernel_size: int, stride: int = 1, dilation=1, mode="causal"):
     """Calculates 'same' padding. This results in output length being the same as input when stride == 1. Otherwise, the output length is input//stride.
 
     Args:
@@ -19,12 +20,12 @@ def calculate_pads(kernel_size, dilation=1, mode="causal"):
     """
     if kernel_size == 1:
         return (0, 0)
-    p = (kernel_size - 1) * dilation + 1
-    half_p = p // 2
+    K = (kernel_size - 1) * dilation + 1
+    pad_total = K - stride
     if mode == "causal":
-        return (2 * half_p, 0)
+        return (pad_total, 0)
     elif mode == "noncausal":
-        return (half_p, half_p)
+        return (pad_total - pad_total // 2, pad_total // 2)
     else:
         raise ValueError(
             f"Convolution padding mode: {mode} not recognized. Only 'causal' and 'noncausal' are supported"
@@ -40,9 +41,14 @@ class StreamConv1d(nn.Conv1d):
         stride: int = 1,
         padding: Tuple[int] = (0, 0),
         dilation: int = 1,
+        extra_pad: bool = False,
         **kwargs,
     ):
-        """Streaming (cached) 1d convolution. Parameters are all the same as nn.Conv1d except padding being a tuple (left and right padding can be specified)."""
+        """
+        Streaming (cached) 1d convolution. Parameters are all the same as nn.Conv1d except padding being a tuple (left and right padding can be specified).
+        Simply adding zero padding results in discontinuities between buffers.
+        Streaming mode keeps a cache of past inputs to keep the results same as if the buffers were concatenated.
+        """
         self.pads = padding
         super().__init__(
             in_channels,
@@ -53,22 +59,32 @@ class StreamConv1d(nn.Conv1d):
             dilation=dilation,
             **kwargs,
         )
-        self.n = dilation * (self.kernel_size[0] - 1) + 1
+        self.K = (
+            dilation * (self.kernel_size[0] - 1) + 1
+        )  # total space that a kernel occupies
+        self.extra_pad = extra_pad  # fill last window during training
         self.register_buffer(
-            "cache", torch.zeros(MAX_BATCH_SIZE, in_channels, self.pads[0])
+            "cache", torch.zeros(EVAL_MAX_BATCH_SIZE, in_channels, self.pads[0])
         )  # initialized with zero padding
 
-    def cached_pad(self, x: torch.Tensor):
+    def get_n_frames(self, input_length: int) -> float:
+        # data with size L allows for (L-K)//s conv ops
+        return (input_length - self.K) / self.stride[0]
+
+    def cached_pad(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        self.cache = x[..., -padding:] doesn't work for non-"same" type convs
+        This keeps track of where the convolution was performed last
+        so that we can keep necessary samples to do next convolution with next buffer
+        """
         # x: batch, channel, L
         x = torch.cat([self.cache[: x.shape[0]], x], dim=-1)
-        # self.cache = x[..., -padding:] doesn't work for non-"same" type convs
-        # data with size L allows for (L-n)//s conv ops
-        n_convs = (x.shape[-1] - self.n) // self.stride[0]
+        n_convs = math.floor(self.get_n_frames(x.shape[-1]))
         # starting position of conv that wasn't calculated
         next_pos = self.stride[0] * (n_convs + 1)
         if next_pos < x.shape[-1]:
             # save as new cache
-            self.cache = x[..., next_pos:]
+            self.cache = x[..., next_pos:].detach()
         else:
             # There is nothing that can be cached: shouldn't happen unless stride is larger than n
             self.cache = torch.empty(
@@ -76,43 +92,60 @@ class StreamConv1d(nn.Conv1d):
             )
         return x
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if not self.training:
             x = self.cached_pad(x)
             return F.conv1d(
                 x,
                 self.weight,
                 self.bias,
-                self.stride,
-                self.padding,  # no padding
-                self.dilation,
-                self.groups,
+                stride=self.stride,
+                padding=0,  # no padding
+                dilation=self.dilation,
+                groups=self.groups,
             )
-        else:
-            x = F.pad(x, pad=(self.pads[0], self.pads[1]))
+        else:  # during training use normal padding
+            if self.extra_pad:
+                # Sometimes, last window isn't filled and end of signal is wasted
+                # This adds extra padding to end to prevent that
+                # based on encodec.modules.conv.get_extra_padding_for_conv1d
+                total_p = self.pads[0] + self.pads[1]
+                L = x.shape[-1] + total_p
+                n_frames = math.ceil(self.get_n_frames(L))
+                ideal_length = n_frames * self.stride[0] + (self.K - total_p)
+                extra_p = ideal_length - L
+                x = F.pad(x, pad=(self.pads[0], self.pads[1] + extra_p))
+            else:
+                x = F.pad(x, pad=(self.pads[0], self.pads[1]))
             return F.conv1d(
                 x,
                 self.weight,
                 self.bias,
-                self.stride,
-                self.padding,  # no padding
-                self.dilation,
-                self.groups,
+                stride=self.stride,
+                padding=0,  # no padding
+                dilation=self.dilation,
+                groups=self.groups,
             )
 
     @torch.jit.export
-    def flush(self):
+    def flush(self) -> torch.Tensor:
+        """Flush remaining cache along with end padding
+        Not necessary for streaming uses
+
+        Returns:
+            torch.Tensor: flushed output or empty tensor
+        """
         x = F.pad(self.cache, pad=(0, self.pads[1]))
-        if x.shape[-1] - self.n > 0:
+        if x.shape[-1] - self.K > 0:
             # there is enough to calculate
             return nn.functional.conv1d(
                 x,
                 self.weight,
                 self.bias,
-                self.stride,
-                0,  # no padding
-                self.dilation,
-                self.groups,
+                stride=self.stride,
+                padding=0,  # no padding
+                dilation=self.dilation,
+                groups=self.groups,
             )
         else:
             return torch.empty(
@@ -131,7 +164,11 @@ class StreamConvTranspose1d(nn.ConvTranspose1d):
         dilation: int = 1,
         **kwargs,
     ):
-        """Streaming (cached) 1d transposed convolution. Parameters are all the same as nn.ConvTranspose1d except padding being a tuple (left and right padding can be specified)."""
+        """
+        Streaming (cached) 1d transposed convolution. Parameters are all the same as nn.ConvTranspose1d except padding being a tuple (left and right padding can be specified).
+        Padding for transposed conv equates to cropping of the output signal.
+        Streaming mode accounts for outputs from last buffer overlapping into current output.
+        """
         self.pads = padding
         super().__init__(
             in_channels,
@@ -143,15 +180,15 @@ class StreamConvTranspose1d(nn.ConvTranspose1d):
             **kwargs,
         )
         self.register_buffer(
-            "cache", torch.zeros(MAX_BATCH_SIZE, out_channels, self.pads[0])
+            "cache", torch.zeros(EVAL_MAX_BATCH_SIZE, out_channels, self.pads[0])
         )
-        self.use_bias = kwargs.get("bias", True)
-        # self.bias is Optional[Tensor]
+        self.use_bias: bool = kwargs.get("bias", True)
+        # self.bias is Optional[Tensor] and bad for scripting
         self._bias: torch.Tensor = self.bias if self.use_bias else torch.empty(0)
-        self.init = True
-        self.batch_size = MAX_BATCH_SIZE
+        self.init: bool = True
+        self.batch_size: int = EVAL_MAX_BATCH_SIZE
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if not self.training:
             next_pos = self.stride[0] * x.shape[-1]  # head of next conv
             self.batch_size = x.shape[0]
@@ -166,10 +203,12 @@ class StreamConvTranspose1d(nn.ConvTranspose1d):
                 dilation=self.dilation,
             )
             # add overlapping cache
+            if self.cache.shape[-1] > out.shape[-1]:
+                out = F.pad(out, pad=(0, self.cache.shape[-1] - out.shape[-1]))
             out[..., : self.cache.shape[-1]] += self.cache[: self.batch_size]
             if next_pos < out.shape[-1]:
                 # save as new cache
-                self.cache = out[..., next_pos:]
+                self.cache = out[..., next_pos:].detach()
                 # crop output
                 out = out[..., :next_pos]
             else:
@@ -178,11 +217,11 @@ class StreamConvTranspose1d(nn.ConvTranspose1d):
                     out.shape[0], self.out_channels, 0, device=self.cache.device
                 )
             if self.use_bias:
-                out = out + self._bias  # add bias after caching
+                out = out + self._bias[None, :, None]  # add bias after caching
             if self.init:  # apply left padding (cropping)
                 out = out[..., self.pads[0] :]
                 self.init = False
-        else:
+        else:  # during training, use normal padding (cropping)
             out = nn.functional.conv_transpose1d(
                 x,
                 self.weight,
@@ -197,16 +236,22 @@ class StreamConvTranspose1d(nn.ConvTranspose1d):
         return out
 
     @torch.jit.export
-    def flush(self):
+    def flush(self) -> torch.Tensor:
         out = self.cache[: self.batch_size, :, : self.cache.shape[-1] - self.pads[1]]
         if self.use_bias:
-            return out + self._bias
+            return out + self._bias[None, :, None]
         else:
             return out
 
 
 class AlignBranches(nn.Module):
-    # keep cache of branches that are ahead
+    """
+    Keeps cache of branches that are ahead
+    Useful for residual nets with irregular pad sizes for the conv branch,
+    where the output size fluctuates from the input size.
+    Ex.) First output of non causal padding is shorter
+    """
+
     def __init__(self, *branches):
         super().__init__()
         self.branches = nn.ModuleList(branches)
@@ -214,7 +259,7 @@ class AlignBranches(nn.Module):
         self.caches = [torch.empty(0) for i in range(len(branches))]
         self.has_flush: Tuple[bool] = [hasattr(b, "flush") for b in branches]
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         outs: List[torch.Tensor] = []
         ys = [branch(x) for branch in self.branches]
         lengths = [y.shape[-1] for y in ys]
@@ -240,13 +285,13 @@ class AlignBranches(nn.Module):
         return outs
 
     # @torch.jit.export # flush currently doesn't work with torchscript
-    def flush(self):
+    def flush(self) -> List[torch.Tensor]:
         outs = []
         for i, b in enumerate(self.branches):
             if self.has_flush[i]:
-                print(self.has_flush[i], b, "hasflushg")
+                # print(self.has_flush[i], b, "hasflush")
                 outs.append(torch.cat([self.caches[i], b.flush()], dim=-1))
             else:
-                print(self.has_flush[i], b, "noflush")
+                # print(self.has_flush[i], b, "noflush")
                 outs.append(torch.cat([self.caches[i]], dim=-1))
         return outs

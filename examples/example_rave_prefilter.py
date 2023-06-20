@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from argparse import ArgumentParser
@@ -6,18 +5,17 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
+import torchaudio
 from torch import Tensor, nn
 
-import torchaudio
+from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
     render_audio_sample,
 )
-
-from neutone_sdk import WaveformToWaveformBase, NeutoneParameter
+from neutone_sdk.filters import FIRFilter, FilterType
 from neutone_sdk.utils import save_neutone_model
-from neutone_sdk.filters import FIRFilter, IIRFilter, FilterType
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -103,7 +101,7 @@ class FilteredRAVEModelWrapper(WaveformToWaveformBase):
     def get_native_buffer_sizes(self) -> List[int]:
         return [2048]
 
-    def calc_min_delay_samples(self) -> int:
+    def calc_model_delay_samples(self) -> int:
         # model latency should also be added if non-causal
         return self.pre_filter.delay
 

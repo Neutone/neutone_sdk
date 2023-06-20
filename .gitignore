@@ -199,8 +199,9 @@ pip-selfcheck.json
 #   git rm -r .ipynb_checkpoints/
 
 # User added
-.idea
-exports
+.idea/
+exports/
+export_model/
+models/
+out/
 scratch.py
-export_model
-models

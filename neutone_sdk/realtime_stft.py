@@ -213,7 +213,7 @@ class RealtimeSTFT(nn.Module):
         self.reset()
 
     @tr.jit.export
-    def calc_min_delay_samples(self) -> int:
+    def calc_model_delay_samples(self) -> int:
         return self.fade_n_samples
 
     @tr.jit.export

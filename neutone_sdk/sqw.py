@@ -321,14 +321,18 @@ class SampleQueueWrapper(nn.Module):
         return self.resample_sandwich.is_resampling()
 
     @tr.jit.export
-    def calc_min_delay_samples(self) -> int:
-        model_min_delay = self.w2w_base.calc_min_delay_samples()
-        wrapper_min_delay = self.calc_delay_samples(self.io_bs, self.model_bs)
-        min_delay = model_min_delay + wrapper_min_delay
+    def calc_buffering_delay_samples(self) -> int:
+        delay_samples = self.calc_delay_samples(self.io_bs, self.model_bs)
         if self.is_resampling():
-            min_delay = int(min_delay * self.daw_bs / self.io_bs)
+            delay_samples = int(delay_samples * self.daw_bs / self.io_bs)
+        return delay_samples
 
-        return min_delay
+    @tr.jit.export
+    def calc_model_delay_samples(self) -> int:
+        delay_samples = self.w2w_base.calc_model_delay_samples()
+        if self.is_resampling():
+            delay_samples = int(delay_samples * self.daw_bs / self.io_bs)
+        return delay_samples
 
     @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
@@ -433,7 +437,8 @@ class SampleQueueWrapper(nn.Module):
             "get_input_gain_default_value",
             "get_output_gain_default_value",
             "is_resampling",
-            "calc_min_delay_samples",
+            "calc_buffering_delay_samples",
+            "calc_model_delay_samples",
             "set_daw_sample_rate_and_buffer_size",
             "reset",
             "get_preserved_attributes",

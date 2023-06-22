@@ -134,7 +134,7 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
         if use_debug_mode:
             log.info(f"Supported buffer sizes = {self.get_native_buffer_sizes()}")
             log.info(f"Supported sample rate = {self.get_native_sample_rates()}")
-            log.info(f"STFT delay = {self.calc_min_delay_samples()}")
+            log.info(f"STFT delay = {self.calc_model_delay_samples()}")
 
     def get_model_name(self) -> str:
         return "spectral.filter"
@@ -201,9 +201,9 @@ class SpectralFilterWrapper(WaveformToWaveformBase):
         )  # Possible buffer sizes are determined by the STFT parameters
 
     @tr.jit.export
-    def calc_min_delay_samples(self) -> int:
+    def calc_model_delay_samples(self) -> int:
         # TODO(cm): make a model specific version of this method?
-        return self.stft.calc_min_delay_samples()  # This is equal to `fade_n_samples`
+        return self.stft.calc_model_delay_samples()  # This is equal to `fade_n_samples`
 
     def set_model_buffer_size(self, n_samples: int) -> bool:
         self.stft.set_buffer_size(n_samples)

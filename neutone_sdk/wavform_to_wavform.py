@@ -256,9 +256,9 @@ class WaveformToWaveformBase(NeutoneModel):
         return False
 
     @tr.jit.export
-    def calc_min_delay_samples(self) -> int:
+    def calc_model_delay_samples(self) -> int:
         """
-        If the model introduces a minimum amount of delay to the output audio,
+        If the model introduces an amount of delay to the output audio,
         for example due to a lookahead buffer or cross-fading, return it here
         so that it can be forwarded to the DAW to compensate. Defaults to 0.
 
@@ -344,7 +344,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 "get_native_sample_rates",
                 "get_native_buffer_sizes",
                 "is_resampling",
-                "calc_min_delay_samples",
+                "calc_model_delay_samples",
                 "set_sample_rate_and_buffer_size",
                 "set_daw_sample_rate_and_buffer_size",
                 "reset",

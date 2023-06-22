@@ -154,7 +154,7 @@ def delay_test(
     wrapper.model_sr = model_sr
     wrapper.model_bs = model_bs
     sqw.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs)
-    expected_delay = sqw.calc_min_delay_samples()
+    expected_delay = sqw.calc_buffering_delay_samples()
     assert expected_delay >= 0
 
     n_samples = expected_delay + (2 * max(daw_bs, model_bs))
@@ -208,7 +208,7 @@ def test_calc_saturation_n() -> None:
     log.info("No saturation inconsistencies found")
 
 
-def test_calc_min_delay_samples() -> None:
+def test_calc_buffering_delay_samples() -> None:
     wrapper = TestModelWrapper()
     sqw = SampleQueueWrapper(wrapper)
 

@@ -1,4 +1,3 @@
-import copy
 import io
 import json
 import logging
@@ -6,6 +5,11 @@ import os
 import random
 from pathlib import Path
 from typing import Tuple, Dict, List
+
+import torch as tr
+from torch import Tensor
+from torch.jit import ScriptModule
+
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
@@ -15,10 +19,6 @@ from neutone_sdk.audio import (
 from neutone_sdk.constants import MAX_N_AUDIO_SAMPLES
 from neutone_sdk.core import NeutoneModel
 from neutone_sdk.metadata import validate_metadata
-
-import torch as tr
-from torch import Tensor
-from torch.jit import ScriptModule
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -157,13 +157,16 @@ def save_neutone_model(
             loaded_model, loaded_model.get_preserved_attributes()
         )
         log.info("Testing methods used by the VST...")
-        loaded_model.calc_min_delay_samples()
         loaded_model.set_daw_sample_rate_and_buffer_size(48000, 512)
         loaded_model.reset()
         loaded_model.is_resampling()
         log.info(
-            f"Delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
-            f"{loaded_model.calc_min_delay_samples()}"
+            f"Buffering delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
+            f"{loaded_model.calc_buffering_delay_samples()}"
+        )
+        log.info(
+            f"Model delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
+            f"{loaded_model.calc_model_delay_samples()}"
         )
 
         if submission:  # Do extra checks

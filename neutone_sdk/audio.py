@@ -125,14 +125,17 @@ def get_default_audio_samples() -> List[AudioSample]:
     log.info(
         "Using default sample... Please consider using your own audio samples by overriding the get_audio_samples method"
     )
-    sample_inst = AudioSample.from_bytes(
-        pkgutil.get_data(__package__, "assets/default_samples/sample_inst.mp3"),
+    sample_ambience = AudioSample.from_bytes(
+        pkgutil.get_data(__package__, "assets/default_samples/sample_ambience.mp3"),
     )
-    sample_music = AudioSample.from_bytes(
-        pkgutil.get_data(__package__, "assets/default_samples/sample_music.mp3"),
+    sample_drums = AudioSample.from_bytes(
+        pkgutil.get_data(__package__, "assets/default_samples/sample_drums.mp3"),
+    )
+    sample_rhodes = AudioSample.from_bytes(
+        pkgutil.get_data(__package__, "assets/default_samples/sample_rhodes.mp3"),
     )
 
-    return [sample_inst, sample_music]
+    return [sample_rhodes, sample_drums, sample_ambience]
 
 
 def render_audio_sample(

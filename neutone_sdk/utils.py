@@ -158,8 +158,6 @@ def save_neutone_model(
         )
         log.info("Testing methods used by the VST...")
         loaded_model.set_daw_sample_rate_and_buffer_size(48000, 512)
-        loaded_model.calc_buffering_delay_samples()
-        loaded_model.calc_model_delay_samples()
         loaded_model.reset()
         loaded_model.is_resampling()
         log.info(

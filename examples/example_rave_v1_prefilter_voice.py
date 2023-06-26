@@ -123,7 +123,7 @@ class FilteredRAVEv1ModelWrapper(WaveformToWaveformBase):
         x = self.pre_filter(x)
         ## parameters edit the latent variable
         z_mean, z_std = self.model.encode_amortized(x.unsqueeze(1))
-        noise_amp = z_std * params["Randomness"] * 4
+        noise_amp = z_std * (params["Randomness"] + 0.20) * 4 # add 0.20 to avoid static noise #TODO find the reason
         batch, latent_dim, time = z_std.shape
         z = (
             torch.randn(1, latent_dim, 1, device=z_std.device).expand(batch, -1, time)

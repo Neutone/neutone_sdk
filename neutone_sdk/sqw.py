@@ -3,7 +3,8 @@ import math
 import os
 from typing import Optional, List
 
-import torch as tr
+import torch
+import torch as tr  # TODO(cm): always use torch. not tr. since torchscript sometimes doesn't like compiling it
 from torch import Tensor, nn
 
 from neutone_sdk import WaveformToWaveformMetadata, validate_waveform
@@ -299,6 +300,44 @@ class SampleQueueWrapper(nn.Module):
         if curr_n == 0:
             return None
         return self.bt_out_buffer[0:daw_n_ch, 0:curr_n]
+
+    @tr.jit.export
+    @tr.no_grad()
+    def forward_offline(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
+        self.reset()
+
+        delay_samples = self.calc_buffering_delay_samples() + self.calc_model_delay_samples()
+        if self.use_debug_mode:
+            assert x.ndim == 2
+            if params is not None:
+                assert params.ndim == 2
+                assert x.size(1) == params.size(1)
+
+        n_samples = x.size(1)
+        # Ensure we pad enough to make up for any delay
+        padding_amount = torch.ceil(torch.tensor((n_samples + delay_samples) / self.daw_bs)) * self.daw_bs - n_samples
+        padding_amount = int(padding_amount.item())
+        padded_audio = torch.nn.functional.pad(x, [0, padding_amount])
+        audio_chunks = padded_audio.split(self.daw_bs, dim=1)
+
+        param_chunks = []
+        if params is not None:
+            padded_params = torch.nn.functional.pad(params, [0, padding_amount], mode="replicate")
+            param_chunks = padded_params.split(self.daw_bs, dim=1)
+
+        # TODO(cm): if memory is an issue, we can preallocate everything beforehand
+        out_chunks = []
+        for idx, audio_chunk in enumerate(audio_chunks):
+            if params is None:
+                out = self.forward(audio_chunk, params=None).clone()
+            else:
+                param_chunk = param_chunks[idx]
+                out = self.forward(audio_chunk, params=param_chunk).clone()
+            out_chunks.append(out)
+
+        audio_out = torch.cat(out_chunks, dim=1)
+        audio_out = audio_out[:, -n_samples:]
+        return audio_out
 
     @tr.jit.export
     def is_input_mono(self) -> bool:

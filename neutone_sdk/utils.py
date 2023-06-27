@@ -16,7 +16,7 @@ from neutone_sdk.audio import (
     get_default_audio_samples,
     render_audio_sample,
 )
-from neutone_sdk.constants import MAX_N_AUDIO_SAMPLES
+from neutone_sdk.constants import MAX_N_AUDIO_SAMPLES, MAX_N_PARAMS
 from neutone_sdk.core import NeutoneModel
 from neutone_sdk.metadata import validate_metadata
 
@@ -168,6 +168,15 @@ def save_neutone_model(
             f"Model delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
             f"{loaded_model.calc_model_delay_samples()}"
         )
+
+        log.info("Testing offline mode...")
+        for input_sample in get_default_audio_samples():
+            offline_sr = input_sample.sr
+            offline_bs = 4096
+            loaded_model.set_daw_sample_rate_and_buffer_size(offline_sr, offline_bs)
+            offline_params = tr.rand((MAX_N_PARAMS, input_sample.audio.size(1)))
+            offline_rendered_sample = loaded_model.forward_offline(input_sample.audio, offline_params)
+            break
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")

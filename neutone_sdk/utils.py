@@ -172,7 +172,7 @@ def save_neutone_model(
             loaded_model.set_daw_sample_rate_and_buffer_size(offline_sr, offline_bs)
             offline_params = tr.rand((MAX_N_PARAMS, input_sample.audio.size(1)))
             offline_rendered_sample = loaded_model.forward_offline(input_sample.audio, offline_params)
-            break
+            break  # Only test one sample to reduce export time
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")

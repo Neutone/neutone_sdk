@@ -2,7 +2,7 @@ from pathlib import Path
 
 SDK_VERSION = "1.4.2"
 
-MAX_N_PARAMS = 4
+MAX_N_PARAMS = 4  # TODO(cm): remove
 MAX_N_AUDIO_SAMPLES = 3
 
 DEFAULT_DAW_SR = 48000

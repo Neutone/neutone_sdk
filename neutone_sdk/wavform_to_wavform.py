@@ -1,5 +1,4 @@
 import logging
-import time
 from abc import abstractmethod
 from typing import NamedTuple, Dict, List, Optional
 
@@ -32,18 +31,35 @@ class WaveformToWaveformMetadata(NamedTuple):
     output_gain_default_value: float
     is_input_mono: bool
     is_output_mono: bool
+    audio_input_channels: List[int]
+    audio_output_channels: List[int]
+    is_realtime: bool
     model_type: str
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
     look_behind_samples: int
+    offline_audio_output_samples: int
     sdk_version: str
     pytorch_version: str
     date_created: float
 
 
+# TODO(cm): rename
 class WaveformToWaveformBase(NeutoneModel):
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         super().__init__(model, use_debug_mode)
+        self.n_audio_inputs = len(self.get_audio_input_channels())
+        self.n_audio_outputs = len(self.get_audio_output_channels())
+        # TODO(cm): check if these needs to be registered like ParameterList or ModuleList
+        self.model_in_buffers = [tr.zeros((n_ch, 1)) for n_ch in self.get_audio_input_channels()]
+        self.in_queues = [CircularInplaceTensorQueue(n_ch, 1) for n_ch in self.get_audio_input_channels()]
+        if use_debug_mode:
+            if self.n_audio_inputs == 0:
+                assert self.get_look_behind_samples() == 0, "At least 1 audio input must exist for look-behind"
+            assert self.n_audio_outputs > 0
+            if self.is_realtime():
+                assert self.get_offline_audio_output_samples() == -1
+
         self.in_n_ch = 1 if self.is_input_mono() else 2
         # These initializations are all temporary for TorchScript typing, otherwise they would be None
         # These variables are only used if get_look_behind_samples() is greater than 0
@@ -61,6 +77,24 @@ class WaveformToWaveformBase(NeutoneModel):
     @abstractmethod
     def is_output_mono(self) -> bool:
         pass
+
+    @abstractmethod
+    # @tr.jit.export
+    def get_audio_input_channels(self) -> List[int]:
+        # return [2, 2]
+        pass
+
+    @abstractmethod
+    # @tr.jit.export
+    def get_audio_output_channels(self) -> List[int]:
+        # return [2, 2]
+        pass
+
+    # @abstractmethod
+    @tr.jit.export
+    def is_realtime(self) -> bool:
+        return True
+        # pass
 
     @abstractmethod
     def get_native_sample_rates(self) -> List[int]:
@@ -85,7 +119,7 @@ class WaveformToWaveformBase(NeutoneModel):
         pass
 
     @abstractmethod
-    def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def do_forward_pass(self, audio_inputs: List[Tensor], params: Dict[str, Tensor]) -> List[Tensor]:
         """
         SDK users can overwrite this method to implement the logic for their models.
         The inputs to this method should be treated as read-only.
@@ -177,18 +211,31 @@ class WaveformToWaveformBase(NeutoneModel):
     def prepare_for_inference(self) -> None:
         """Prepare the wrapper and model for inference and to be converted to torchscript."""
         super().prepare_for_inference()
+        for queue in self.in_queues:
+            queue.use_debug_mode = False
         self.in_queue.use_debug_mode = False
         self.params_queue.use_debug_mode = False
 
-    def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
+    def forward(self, audio_inputs: List[Tensor], params: Optional[Tensor] = None) -> List[Tensor]:
         """
         Internal forward pass for a WaveformToWaveform model.
 
         If params is None, we fill in the default values.
         """
         if self.use_debug_mode:
-            validate_waveform(x, self.is_input_mono())
-        in_n = x.size(1)
+            assert len(audio_inputs) == self.n_audio_inputs
+            n_samples = -1
+            for x, n_ch in zip(audio_inputs, self.get_audio_input_channels()):
+                should_be_mono = n_ch == 1
+                validate_waveform(x, should_be_mono)
+                if n_samples != -1:
+                    assert x.size(1) == n_samples, "All audio inputs must be the same number of samples"
+                else:
+                    n_samples = x.size(1)
+
+        in_n = -1
+        if self.n_audio_inputs > 0:
+            in_n = audio_inputs[0].size(1)
 
         if params is None:
             # The default params come in as one value by default but for compatibility
@@ -198,12 +245,12 @@ class WaveformToWaveformBase(NeutoneModel):
 
         if self.use_debug_mode:
             assert params.shape == (self.MAX_N_PARAMS, in_n)
-            if self.curr_bs != -1:
+            if self.n_audio_inputs > 0 and self.curr_bs != -1:
                 assert in_n == self.curr_bs, (
                     f"Invalid model input audio length of {in_n} samples, "
                     f"must be of length {self.curr_bs} samples"
                 )
-            elif self.get_native_buffer_sizes():
+            elif self.n_audio_inputs > 0 and self.get_native_buffer_sizes():
                 assert (
                     in_n in self.get_native_buffer_sizes()
                 ), f"The model does not support a buffer size of {in_n}"
@@ -217,16 +264,17 @@ class WaveformToWaveformBase(NeutoneModel):
                     "been set. Be sure to call `set_sample_rate_and_buffer_size` before using the model."
                 )
 
-        if self.get_look_behind_samples():
-            self.in_queue.push(x)
-            self.params_queue.push(params)
-            n = self.in_queue.size
-            self.model_in_buffer[:, 0:-n] = 0
-            self.in_queue.fill(self.model_in_buffer[:, -n:])
-            self.params_buffer[:, 0:-n] = self.get_default_param_values()
-            self.params_queue.fill(self.params_buffer[:, -n:])
-            x = self.model_in_buffer
-            params = self.params_buffer
+        # if self.get_look_behind_samples():
+        #     # TODO(cm): add look-behind functionality for multiple audio inputs
+        #     self.in_queue.push(x)
+        #     self.params_queue.push(params)
+        #     n = self.in_queue.size
+        #     self.model_in_buffer[:, 0:-n] = 0
+        #     self.in_queue.fill(self.model_in_buffer[:, -n:])
+        #     self.params_buffer[:, 0:-n] = self.get_default_param_values()
+        #     self.params_queue.fill(self.params_buffer[:, -n:])
+        #     x = self.model_in_buffer
+        #     params = self.params_buffer
 
         params = self.aggregate_params(params)
         if self.use_debug_mode:
@@ -235,20 +283,24 @@ class WaveformToWaveformBase(NeutoneModel):
         for idx, neutone_param in enumerate(self.get_neutone_parameters()):
             self.remapped_params[neutone_param.name] = params[idx]
 
-        x = self.do_forward_pass(x, self.remapped_params)
+        audio_outputs = self.do_forward_pass(audio_inputs, self.remapped_params)
 
         if self.use_debug_mode:
-            validate_waveform(x, self.is_output_mono())
-            if self.curr_bs == -1:
-                assert x.size(1) == in_n
-            else:
-                assert x.size(1) == self.curr_bs, (
-                    f"Invalid model output audio length of {x.size(1)} samples, "
-                    f"must be of length {self.curr_bs} samples "
-                    f"(are you using a look behind buffer incorrectly?)"
-                )
+            assert len(audio_outputs) == self.n_audio_outputs
+            n_samples = -1
+            for x, n_ch in zip(audio_outputs, self.get_audio_output_channels()):
+                should_be_mono = n_ch == 1
+                validate_waveform(x, should_be_mono)
+                if n_samples != -1:
+                    assert x.size(1) == n_samples, "All audio outputs must be the same number of samples"
+                else:
+                    n_samples = x.size(1)
 
-        return x
+        return audio_outputs
+
+    @tr.jit.export
+    def get_offline_audio_output_samples(self) -> int:
+        return -1
 
     @tr.jit.export
     def is_resampling(self) -> bool:
@@ -327,8 +379,12 @@ class WaveformToWaveformBase(NeutoneModel):
         Returns:
             bool: True if 'reset_model' is implemented and successful, otherwise False.
         """
+        for queue in self.in_queues:
+            queue.reset()
         self.in_queue.reset()
         self.params_queue.reset()
+        for buffer in self.model_in_buffers:
+            buffer.fill_(0)
         self.model_in_buffer.fill_(0)
         self.params_buffer[:, :] = self.get_default_param_values()
         return self.reset_model()
@@ -341,8 +397,12 @@ class WaveformToWaveformBase(NeutoneModel):
             [
                 "is_input_mono",
                 "is_output_mono",
+                "get_input_audio_channels",
+                "get_output_audio_channels",
+                "is_realtime",
                 "get_native_sample_rates",
                 "get_native_buffer_sizes",
+                "get_offline_audio_output_samples",
                 "is_resampling",
                 "calc_model_delay_samples",
                 "set_sample_rate_and_buffer_size",
@@ -379,8 +439,12 @@ class WaveformToWaveformBase(NeutoneModel):
             is_experimental=core_metadata.is_experimental,
             is_input_mono=self.is_input_mono(),
             is_output_mono=self.is_output_mono(),
+            audio_input_channels=self.get_audio_input_channels(),
+            audio_output_channels=self.get_audio_output_channels(),
+            is_realtime=self.is_realtime(),
             model_type=f"{'mono' if self.is_input_mono() else 'stereo'}-{'mono' if self.is_output_mono() else 'stereo'}",
             native_buffer_sizes=self.get_native_buffer_sizes(),
             native_sample_rates=self.get_native_sample_rates(),
             look_behind_samples=self.get_look_behind_samples(),
+            offline_audio_output_samples=self.get_offline_audio_output_samples(),
         )

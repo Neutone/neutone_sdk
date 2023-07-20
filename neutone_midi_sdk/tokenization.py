@@ -1,6 +1,5 @@
 import torch
-import math
-from typing import Dict, List, Tuple, Union, Any, NamedTuple
+from typing import Dict, List, Tuple
 
 
 class TokenData:
@@ -13,14 +12,14 @@ class TokenData:
         self.ints = ints
 
     def get_elements(self) -> Tuple[Dict[str, List[str]], Dict[str, List[float]], Dict[str, List[int]]]:
-        return (self.strings, self.floats, self.ints)
+        return self.strings, self.floats, self.ints
+
 
 def convert_midi_to_tokens(midi_data: torch.Tensor,
                            token_type: str,
                            midi_to_token_vocab: Dict[str, int],
                            tokenizer_data: TokenData) \
         -> torch.Tensor:
-
     if token_type == "MIDILike":
         return convert_midi_to_midilike_tokens(midi_data, midi_to_token_vocab, tokenizer_data)
 
@@ -42,7 +41,6 @@ def convert_tokens_to_midi(tokens: torch.Tensor,
                            token_type: str,
                            token_to_midi_vocab: Dict[int, str],
                            tokenizer_data: TokenData) -> torch.Tensor:
-
     if token_type == "MIDILike":
         return convert_midilike_tokens_to_midi(tokens, token_to_midi_vocab)
 
@@ -59,12 +57,15 @@ def convert_tokens_to_midi(tokens: torch.Tensor,
     else:
         return torch.zeros((2, 2))
 
+
 """
 Utility Functions
 Because torchscript scrictly enforces Typed python, it can often lead to very verbose code.
 These functions perform common operations within the tokenisation methods while keeping things
 fairly readable. 
 """
+
+
 def closest_int(input_list: List[int], value: int) -> int:
     # https://stackoverflow.com/questions/12141150/from-list-of-integers-get-number-closest-to-a-given-value
     aux: List[int] = []
@@ -89,6 +90,7 @@ def closest_float_idx(input_list: List[float], value: float) -> int:
 
     return aux.index(min(aux))
 
+
 def find_next_note_off_location(midi_data: torch.Tensor, note_value: int) -> float:
     location = 0.0
     for message in midi_data:
@@ -96,6 +98,7 @@ def find_next_note_off_location(midi_data: torch.Tensor, note_value: int) -> flo
             location = float(message[3].item())
             return location
     return location
+
 
 def extract_matching_strings(input_list: List[str], strings: List[str]) -> List[str]:
     output_list: List[str] = []
@@ -105,18 +108,19 @@ def extract_matching_strings(input_list: List[str], strings: List[str]) -> List[
                 output_list.append(value)
     return output_list
 
+
 def calculate_delta(message: str) -> float:
     delta_string = message.split("_")[1]
     delta = int(delta_string.split(".")[0]) + int(delta_string.split(".")[1]) * (
             1 / int(delta_string.split(".")[2]))
     return delta
 
+
 def convert_miditok_timing_to_float(message: str) -> float:
     timing_string = message.split("_")[1]
     float_value = float(timing_string.split(".")[0]) + float(timing_string.split(".")[1]) * (
             1 / float(timing_string.split(".")[2]))
     return float_value
-
 
 
 """
@@ -134,12 +138,12 @@ needed to fit within the given vocabulary. It will also likely be necessary to c
 that of the tokenization method. 
 """
 
+
 # -------
 # MIDILike
 def convert_midi_to_midilike_tokens(midi_data: torch.Tensor,
                                     vocab: Dict[str, int],
                                     tokenizer_data: TokenData) -> torch.Tensor:
-
     """
     Given neunote MIDI data, a midi_to-token vocab, and available data*, convert the MIDI data
     into a tensor of tokens.
@@ -229,7 +233,6 @@ def convert_midilike_tokens_to_midi(tokens: torch.Tensor, tokens_to_midi_vocab: 
 def convert_midi_to_tsd_tokens(midi_data: torch.Tensor,
                                vocab: Dict[str, int],
                                tokenizer_data: TokenData) -> torch.Tensor:
-
     token_strings: List[str] = []
     global_timestep: float = 0.0
 
@@ -270,7 +273,6 @@ def convert_midi_to_tsd_tokens(midi_data: torch.Tensor,
 
 def convert_tsd_tokens_to_midi(tokens: torch.Tensor,
                                tokens_to_midi_vocab: Dict[int, str]) -> torch.FloatTensor:
-
     midi_tuples_tensor_list: List[torch.FloatTensor] = []
     global_timestep = 0.0
     velocity: float = 90.0
@@ -288,16 +290,14 @@ def convert_tsd_tokens_to_midi(tokens: torch.Tensor,
         if "Pitch" in message and idx != len(string_tokens) - 2:
 
             # Check if velocity and duration are present in the next 2 tokens, regardless of order
-            if all(any(keyword in s for s in string_tokens[idx+1:idx+3]) for keyword in ("Velocity", "Duration")):
-
-                matching_tokens = extract_matching_strings(string_tokens[idx+1:idx+3],
-                                                            ["Velocity", "Duration"])
+            if all(any(keyword in s for s in string_tokens[idx + 1:idx + 3]) for keyword in ("Velocity", "Duration")):
+                matching_tokens = extract_matching_strings(string_tokens[idx + 1:idx + 3],
+                                                           ["Velocity", "Duration"])
                 vel_tok, dur_tok = matching_tokens[0], matching_tokens[1]
 
                 pitch = float(message.split("_")[1])
                 velocity = float(vel_tok.split("_")[1])
                 duration = convert_miditok_timing_to_float(dur_tok)
-
 
                 midi_tuples_tensor_list.append(torch.FloatTensor([[0.0,
                                                                    pitch,
@@ -316,6 +316,7 @@ def convert_tsd_tokens_to_midi(tokens: torch.Tensor,
 
     return midi_output_tensor
 
+
 # -------
 # REMI
 
@@ -323,7 +324,6 @@ def convert_tsd_tokens_to_midi(tokens: torch.Tensor,
 def convert_midi_to_remi_tokens(midi_data: torch.Tensor,
                                 vocab: Dict[str, int],
                                 tokenizer_data: TokenData) -> torch.Tensor:
-
     token_strings: List[str] = ["Bar_None"]
     global_timestep: float = 0.0
     new_bar: bool = False
@@ -373,7 +373,6 @@ def convert_midi_to_remi_tokens(midi_data: torch.Tensor,
 def convert_remi_tokens_to_midi(tokens: torch.Tensor,
                                 tokens_to_midi_vocab: Dict[int, str],
                                 position_granularity: float) -> torch.FloatTensor:
-
     midi_tuples_tensor_list: List[torch.FloatTensor] = []
     global_timestep = 0.0
     delta: float = 0.0
@@ -396,10 +395,9 @@ def convert_remi_tokens_to_midi(tokens: torch.Tensor,
 
         if "Pitch" in message and idx != len(string_tokens) - 2:
 
-            if all(any(keyword in s for s in string_tokens[idx+1:idx+3]) for keyword in ("Velocity", "Duration")):
-
-                matching_tokens = extract_matching_strings(string_tokens[idx+1:idx+3],
-                                                            ["Velocity", "Duration"])
+            if all(any(keyword in s for s in string_tokens[idx + 1:idx + 3]) for keyword in ("Velocity", "Duration")):
+                matching_tokens = extract_matching_strings(string_tokens[idx + 1:idx + 3],
+                                                           ["Velocity", "Duration"])
                 vel_tok, dur_tok = matching_tokens[0], matching_tokens[1]
 
                 pitch = float(message.split("_")[1])
@@ -422,7 +420,6 @@ def convert_remi_tokens_to_midi(tokens: torch.Tensor,
 
 
 def convert_midi_to_hvo(midi_data: torch.Tensor) -> torch.Tensor:
-
     # Determine total number of 2-bar patterns as determined by the highest time value in midi_data tensor
     mask = (midi_data[:, 0] == 0.0)
     num_patterns = int(torch.max(midi_data[mask, 3]) / 8) + 1
@@ -446,7 +443,6 @@ def convert_midi_to_hvo(midi_data: torch.Tensor) -> torch.Tensor:
 
 
 def convert_hvo_to_midi(hvo: torch.Tensor) -> torch.Tensor:
-
     midi_tuples_tensor_list: List[torch.FloatTensor] = []
     roland_mapping = [36, 38, 42, 46, 43, 47, 50, 49, 51]
 
@@ -456,9 +452,11 @@ def convert_hvo_to_midi(hvo: torch.Tensor) -> torch.Tensor:
             for note_idx, note in enumerate(step[:9]):
                 if note.item() >= 0.9:
                     pitch = float(roland_mapping[note_idx])
-                    velocity = float(two_bar_sequence[beat_idx, (note_idx+9)].item() * 127)
-                    offset = float(two_bar_sequence[beat_idx, (note_idx+18)].item() * 0.125)
-                    time = float(beat_idx * 0.25) + offset + float(pattern_idx * 8.0)
+                    velocity = float(two_bar_sequence[beat_idx, (note_idx + 9)].item() * 127)
+                    offset = float(two_bar_sequence[beat_idx, (note_idx + 18)].item() * 0.125)
+                    time = float(beat_idx * 0.25) + offset
+                    time = time if time >= 0.0 else 0.0
+                    time += float(pattern_idx * 8.0)
 
                     # Note on
                     midi_tuples_tensor_list.append(torch.FloatTensor([[0.0,

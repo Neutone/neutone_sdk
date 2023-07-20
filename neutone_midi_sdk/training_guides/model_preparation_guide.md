@@ -17,7 +17,7 @@ support Tracing.
 ### Scripting a model
 In case the entire functionality of your model is encoded in the forward() function:
 ```angular2html
-trained_model = MyModel(init_args) // trained torch.nn.Module 
+trained_model = MyModel(init_args) # trained torch.nn.Module 
 scripted_model = torch.jit.script(trained_model)
 torch.jit.save(scripted_model, "filename.pt")
 ```
@@ -77,3 +77,7 @@ Notably, you can combine a Traced module with other components and then Script i
 in the above case, as the 'Generate' function requires dynamic processes that cannot be captured with
 tracing. Using the combine method detailed above, you can load this Traced module alongside a custom
 Generate/Sample function, and then script them all together. 
+
+To be clear, we suggest scripting a model whenever possible. With tracing, it will record
+the exact set of operations that are performed on the dummy input. There are much 
+higher likelihoods of missing important parts of the model's functionality when tracing. 

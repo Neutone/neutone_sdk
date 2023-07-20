@@ -19,7 +19,7 @@ which lets you
 tokenise an entire collection of MIDI files in a few easy commands. The SDK can convert the MIDI 
 data in DAW's to and from this format, allowing your model to interact with the same data format that it was trained on. 
 
-![Alt text](/diagrams/sdk_diagram.png "SDK Data Flow")
+![Alt text](diagrams/sdk_diagram.png "SDK Data Flow")
 
 # Wrapping your model
 
@@ -64,9 +64,6 @@ And...that's it! Your model is now ready to deploy in the Neutone-MIDI Plugin.
 
 Provides the base wrapper for a MIDI-to-MIDI model, which is saved as a pytorch scripted .pt file
 
-### Prototype CPP:
-
-Allows for rapid testing of new models, tokenizations, etc. for development purposes
 
 ### Data Preparation
 Each tokenization method has a particular set of quantized values that are available, 
@@ -94,8 +91,6 @@ Current types:
 0.0 = note on
 
 1.0 = note off
-
-2.0 = control value
 ```
 
 ``{0.0, 64.0, 90.0, 2.5}`` = note on, pitch of 64, velocity 90, at beat 2.5 

@@ -30,9 +30,16 @@ After tokenizing the dataset, it's important to save both the config and vocab f
 in JSON format. This is used by the "Data_Preparation" pipeline to extract necessary information
 for MIDI translation. 
 
-Here is an example of tokenizing with MidiLike:
+Here is an example of tokenizing with MIDILike (more examples on Miditok doc page):
 
 ```angular2html
+import argparse
+import os
+import shutil
+import json
+from pathlib import Path
+from miditok import REMI
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()

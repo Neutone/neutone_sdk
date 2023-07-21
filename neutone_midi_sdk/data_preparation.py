@@ -1,5 +1,5 @@
-from typing import Dict, Union, List, Tuple, Any, NamedTuple
-from tokenization import TokenData
+from typing import Dict, List, Tuple
+from neutone_midi_sdk.tokenization import TokenData
 
 
 def prepare_token_data(token_type: str,

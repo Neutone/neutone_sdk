@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import NamedTuple, Dict
 
+
 class NeutoneParameterType(Enum):
     KNOB = "knob"
 class NeutoneParameter(NamedTuple):

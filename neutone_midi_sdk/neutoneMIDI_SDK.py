@@ -1,8 +1,8 @@
 import torch
-from typing import List, Dict, Tuple, Union, Any, NamedTuple, Optional
-from tokenization import convert_midi_to_tokens, convert_tokens_to_midi, TokenData
-from abc import ABC, abstractmethod
-from core import NeutoneMIDIModel
+from typing import List, Dict, Optional
+from abc import abstractmethod
+from neutone_midi_sdk import NeutoneMIDIModel, convert_midi_to_tokens, convert_tokens_to_midi, TokenData
+
 
 
 class MidiToMidiBase(NeutoneMIDIModel):

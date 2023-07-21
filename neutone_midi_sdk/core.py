@@ -1,9 +1,10 @@
 import torch
-from typing import List, Dict, Tuple, Union, Any, NamedTuple
-from tokenization import convert_midi_to_tokens, convert_tokens_to_midi, TokenData
-from abc import ABC, abstractmethod
-from parameter import NeutoneParameter
-import constants
+from typing import List, Dict
+from abc import abstractmethod
+from neutone_midi_sdk.tokenization import TokenData
+from neutone_midi_sdk.parameter import NeutoneParameter
+import neutone_midi_sdk.constants as constants
+
 
 class NeutoneMIDIModel(torch.nn.Module):
     def __init__(self,
@@ -105,7 +106,7 @@ class NeutoneMIDIModel(torch.nn.Module):
         self.eval()
 
 
-#Todo: Would like to deprecate this method, it is used in "HVO" format where there is no TokenData necessary
+# Todo: Would like to deprecate this method, it is used in "HVO" format where there is no TokenData necessary
 def generate_fake_token_data():
     token_strings: Dict[str, List[str]] = {"value": ["value"]}
     token_floats: Dict[str, List[float]] = {"value": [0.0]}

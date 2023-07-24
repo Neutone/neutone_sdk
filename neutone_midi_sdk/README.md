@@ -19,7 +19,6 @@ which lets you
 tokenise an entire collection of MIDI files in a few easy commands. The SDK can convert the MIDI 
 data in DAW's to and from this format, allowing your model to interact with the same data format that it was trained on. 
 
-![Alt text](diagrams/sdk_diagram.png "SDK Data Flow")
 
 # Wrapping your model
 

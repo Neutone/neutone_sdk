@@ -29,12 +29,10 @@ class WaveformToWaveformMetadata(NamedTuple):
     dry_default_value: float
     input_gain_default_value: float
     output_gain_default_value: float
-    is_input_mono: bool
-    is_output_mono: bool
     audio_input_channels: List[int]
     audio_output_channels: List[int]
-    is_realtime: bool
-    model_type: str
+    is_realtime: bool  # TODO(cm): move to core
+    is_gpu_compatible: bool  # TODO(cm): move to core
     native_sample_rates: List[int]
     native_buffer_sizes: List[int]
     look_behind_samples: int
@@ -60,41 +58,33 @@ class WaveformToWaveformBase(NeutoneModel):
             if self.is_realtime():
                 assert self.get_offline_audio_output_samples() == -1
 
-        self.in_n_ch = 1 if self.is_input_mono() else 2
+        # TODO(cm): add look-behind functionality for multiple audio inputs
+        # self.in_n_ch = 1 if self.is_input_mono() else 2
         # These initializations are all temporary for TorchScript typing, otherwise they would be None
         # These variables are only used if get_look_behind_samples() is greater than 0
-        self.curr_bs = -1
-        self.in_queue = CircularInplaceTensorQueue(self.in_n_ch, 1)
-        self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS, 1)
-        self.model_in_buffer = tr.zeros((self.in_n_ch, 1))
-        self.params_buffer = tr.zeros((self.MAX_N_PARAMS, 1))
-        self.agg_params = tr.zeros((self.MAX_N_PARAMS, 1))
+        # self.curr_bs = -1
+        # self.in_queue = CircularInplaceTensorQueue(self.in_n_ch, 1)
+        # self.params_queue = CircularInplaceTensorQueue(self.MAX_N_PARAMS, 1)
+        # self.model_in_buffer = tr.zeros((self.in_n_ch, 1))
+        # self.params_buffer = tr.zeros((self.MAX_N_PARAMS, 1))
+        # self.agg_params = tr.zeros((self.MAX_N_PARAMS, 1))
 
     @abstractmethod
-    def is_input_mono(self) -> bool:
-        pass
-
-    @abstractmethod
-    def is_output_mono(self) -> bool:
-        pass
-
-    @abstractmethod
-    # @tr.jit.export
     def get_audio_input_channels(self) -> List[int]:
-        # return [2, 2]
         pass
 
     @abstractmethod
     # @tr.jit.export
     def get_audio_output_channels(self) -> List[int]:
-        # return [2, 2]
         pass
 
-    # @abstractmethod
-    @tr.jit.export
+    @abstractmethod
     def is_realtime(self) -> bool:
-        return True
-        # pass
+        pass
+
+    @abstractmethod
+    def is_gpu_compatible(self) -> bool:
+        pass
 
     @abstractmethod
     def get_native_sample_rates(self) -> List[int]:
@@ -255,17 +245,18 @@ class WaveformToWaveformBase(NeutoneModel):
                     in_n in self.get_native_buffer_sizes()
                 ), f"The model does not support a buffer size of {in_n}"
 
-            if self.get_look_behind_samples():
-                # If a look behind buffer is being used, the queues and self.curr_bs must be initialized.
-                # This will only potentially trigger in the forward function when just the wrapper is being tested in
-                # python (because the SQW already sets the buffer size in its constructor when using the VST or SQW)
-                assert self.curr_bs != -1, (
-                    "Model uses a look-behind buffer, but the incoming buffer size has not "
-                    "been set. Be sure to call `set_sample_rate_and_buffer_size` before using the model."
-                )
+            # TODO(cm): add look-behind functionality for multiple audio inputs
+            # if self.get_look_behind_samples():
+            #     # If a look behind buffer is being used, the queues and self.curr_bs must be initialized.
+            #     # This will only potentially trigger in the forward function when just the wrapper is being tested in
+            #     # python (because the SQW already sets the buffer size in its constructor when using the VST or SQW)
+            #     assert self.curr_bs != -1, (
+            #         "Model uses a look-behind buffer, but the incoming buffer size has not "
+            #         "been set. Be sure to call `set_sample_rate_and_buffer_size` before using the model."
+            #     )
 
+        # TODO(cm): add look-behind functionality for multiple audio inputs
         # if self.get_look_behind_samples():
-        #     # TODO(cm): add look-behind functionality for multiple audio inputs
         #     self.in_queue.push(x)
         #     self.params_queue.push(params)
         #     n = self.in_queue.size
@@ -339,20 +330,21 @@ class WaveformToWaveformBase(NeutoneModel):
                     n_samples in self.get_native_buffer_sizes()
                 ), f"The model does not support a native buffer size of {n_samples}"
 
-        if self.get_look_behind_samples():
-            if self.curr_bs == -1 or n_samples != self.curr_bs:
-                self.curr_bs = n_samples
-                queue_len = self.get_look_behind_samples() + self.curr_bs
-                self.in_queue = CircularInplaceTensorQueue(
-                    self.in_n_ch, queue_len, use_debug_mode=self.use_debug_mode
-                )
-                self.params_queue = CircularInplaceTensorQueue(
-                    self.MAX_N_PARAMS, queue_len, use_debug_mode=self.use_debug_mode
-                )
-                self.model_in_buffer = tr.zeros((self.in_n_ch, queue_len))
-                self.params_buffer = self.get_default_param_values().repeat(
-                    1, queue_len
-                )
+        # TODO(cm): add look-behind functionality for multiple audio inputs
+        # if self.get_look_behind_samples():
+        #     if self.curr_bs == -1 or n_samples != self.curr_bs:
+        #         self.curr_bs = n_samples
+        #         queue_len = self.get_look_behind_samples() + self.curr_bs
+        #         self.in_queue = CircularInplaceTensorQueue(
+        #             self.in_n_ch, queue_len, use_debug_mode=self.use_debug_mode
+        #         )
+        #         self.params_queue = CircularInplaceTensorQueue(
+        #             self.MAX_N_PARAMS, queue_len, use_debug_mode=self.use_debug_mode
+        #         )
+        #         self.model_in_buffer = tr.zeros((self.in_n_ch, queue_len))
+        #         self.params_buffer = self.get_default_param_values().repeat(
+        #             1, queue_len
+        #         )
 
         return self.set_model_sample_rate_and_buffer_size(sample_rate, n_samples)
 
@@ -395,11 +387,10 @@ class WaveformToWaveformBase(NeutoneModel):
         preserved_attrs = self.get_core_preserved_attributes()
         preserved_attrs.extend(
             [
-                "is_input_mono",
-                "is_output_mono",
                 "get_input_audio_channels",
                 "get_output_audio_channels",
                 "is_realtime",
+                "is_gpu_compatible",
                 "get_native_sample_rates",
                 "get_native_buffer_sizes",
                 "get_offline_audio_output_samples",
@@ -437,12 +428,10 @@ class WaveformToWaveformBase(NeutoneModel):
             date_created=core_metadata.date_created,
             citation=core_metadata.citation,
             is_experimental=core_metadata.is_experimental,
-            is_input_mono=self.is_input_mono(),
-            is_output_mono=self.is_output_mono(),
             audio_input_channels=self.get_audio_input_channels(),
             audio_output_channels=self.get_audio_output_channels(),
             is_realtime=self.is_realtime(),
-            model_type=f"{'mono' if self.is_input_mono() else 'stereo'}-{'mono' if self.is_output_mono() else 'stereo'}",
+            is_gpu_compatible=self.is_gpu_compatible(),
             native_buffer_sizes=self.get_native_buffer_sizes(),
             native_sample_rates=self.get_native_sample_rates(),
             look_behind_samples=self.get_look_behind_samples(),

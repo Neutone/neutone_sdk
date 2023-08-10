@@ -40,21 +40,45 @@ class SampleQueueWrapper(nn.Module):
         self.use_debug_mode = use_debug_mode
 
         self.w2w_base = w2w_base
-        self.in_n_ch = 1 if self.is_input_mono() else 2
-        self.out_n_ch = 1 if self.is_output_mono() else 2
 
         self.channel_normalizer = ChannelNormalizerSandwich(
             use_debug_mode=use_debug_mode
         )
-        self.resample_sandwich = Inplace4pHermiteResampler(
-            self.in_n_ch,
-            self.out_n_ch,
-            daw_sr,
-            daw_sr,  # Tmp sample rate values
-            daw_bs,
-            use_debug_mode=use_debug_mode,
-        )
-        self.params_resample_sandwich = InplaceLinearResampler(
+        # TODO(cm): switch to a more robust resampling method that prevents aliasing
+        self.resamplers = {}
+        self.in_resamplers = []
+        self.out_resamplers = []
+
+        for idx, n_ch in enumerate(self.get_audio_input_channels()):
+            out_ch = n_ch
+            if idx < len(self.get_audio_output_channels()):
+                out_ch = self.get_audio_output_channels()[idx]
+            if (n_ch, out_ch) not in self.resamplers:
+                self.resamplers[(n_ch, out_ch)] = InplaceInterpolationResampler(
+                    n_ch,
+                    out_ch,
+                    daw_sr,
+                    daw_sr,  # Tmp sample rate values
+                    daw_bs,
+                    use_debug_mode=use_debug_mode,
+                )
+            self.in_resamplers.append(self.resamplers[(n_ch, out_ch)])
+        for idx, n_ch in enumerate(self.get_audio_output_channels()):
+            in_ch = n_ch
+            if idx < len(self.get_audio_input_channels()):
+                in_ch = self.get_audio_input_channels()[idx]
+            if (in_ch, n_ch) not in self.resamplers:
+                self.resamplers[(in_ch, n_ch)] = InplaceInterpolationResampler(
+                    in_ch,
+                    n_ch,
+                    daw_sr,
+                    daw_sr,  # Tmp sample rate values
+                    daw_bs,
+                    use_debug_mode=use_debug_mode,
+                )
+            self.out_resamplers.append(self.resamplers[(in_ch, n_ch)])
+
+        self.params_resample_sandwich = InplaceInterpolationResampler(
             self.w2w_base.MAX_N_PARAMS,
             self.w2w_base.MAX_N_PARAMS,
             daw_sr,
@@ -72,14 +96,14 @@ class SampleQueueWrapper(nn.Module):
         self.is_queue_saturated = False
         self.saturation_n = None
 
-        self.in_queue = None
+        self.in_queues = []
         self.params_queue = None
-        self.out_queue = None
+        self.out_queues = []
 
         self.daw_buffer = None
-        self.model_in_buffer = None
+        self.model_in_buffers = []
         self.params_buffer = None
-        self.io_out_buffer = None
+        self.io_out_buffers = []
         self.bt_out_buffer = None
 
         self.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs, model_sr, model_bs)
@@ -209,68 +233,92 @@ class SampleQueueWrapper(nn.Module):
         self.w2w_base.prepare_for_inference()
         self.use_debug_mode = False
         self.channel_normalizer.use_debug_mode = False
-        self.resample_sandwich.use_debug_mode = False
+        for rs in self.resamplers.values():
+            rs.use_debug_mode = False
+            rs.eval()
         self.params_resample_sandwich.use_debug_mode = False
-        self.in_queue.use_debug_mode = False
+        for queue in self.in_queues:
+            queue.use_debug_mode = False
+            queue.eval()
+        for queue in self.out_queues:
+            queue.use_debug_mode = False
+            queue.eval()
         self.params_queue.use_debug_mode = False
-        self.out_queue.use_debug_mode = False
         self.eval()
 
-    def _forward(self, resampled_x: Tensor, params: Optional[Tensor] = None) -> None:
+    def _forward(self, audio_inputs: List[Tensor], params: Optional[Tensor] = None) -> None:
         if params is not None:
             params = self.params_resample_sandwich.process_in(params)
             self.params_queue.push(params)
 
-        resampled_in_n = resampled_x.size(1)
-        if self.use_debug_mode:
-            assert resampled_in_n == self.io_bs
+        resampled_in_n = [resampled_x.size(1) for resampled_x in audio_inputs]
+        if self.use_debug_mode and resampled_in_n:
+            assert all(n == self.io_bs for n in resampled_in_n)
 
-        self.in_queue.push(resampled_x)
+        for resampled_x, in_queue in zip(audio_inputs, self.in_queues):
+            in_queue.push(resampled_x)
+
+        # TODO(cm): handle audio rate params and no audio inputs
         if not self.is_queue_saturated:
-            self.seen_n += resampled_in_n
+            self.seen_n += resampled_in_n[0]
             if self.seen_n >= self.saturation_n:
                 self.is_queue_saturated = True
 
-        while self.in_queue.size >= self.model_bs:
-            in_popped_n = self.in_queue.pop(self.model_in_buffer)
-            if self.use_debug_mode:
-                assert in_popped_n == self.model_bs
-                validate_waveform(self.model_in_buffer, self.is_input_mono())
+        # TODO(cm): handle audio rate params and no audio inputs
+        while self.in_queues[0].size >= self.model_bs:
+            for in_queue, model_in_buffer, in_ch in zip(self.in_queues,
+                                                        self.model_in_buffers,
+                                                        self.get_audio_input_channels()):
+                in_popped_n = self.in_queue.pop(model_in_buffer)
+                if self.use_debug_mode:
+                    assert in_popped_n == self.model_bs
+                    validate_waveform(model_in_buffer, in_ch)
 
             if self.params_queue.is_empty():
-                model_out = self.w2w_base.forward(self.model_in_buffer, None)
+                model_outs = self.w2w_base.forward(self.model_in_buffers, None)
             else:
                 params_popped_n = self.params_queue.pop(self.params_buffer)
                 if self.use_debug_mode:
+                    # TODO(cm): handle no audio inputs
                     assert params_popped_n == in_popped_n
-                model_out = self.w2w_base.forward(
-                    self.model_in_buffer, self.params_buffer
-                )
+                model_outs = self.w2w_base.forward(self.model_in_buffers, self.params_buffer)
 
-            if self.use_debug_mode:
-                validate_waveform(model_out, self.is_output_mono())
-            self.out_queue.push(model_out)
+            for model_out, out_queue, out_ch in zip(model_outs, self.out_queues, self.get_audio_output_channels()):
+                if self.use_debug_mode:
+                    validate_waveform(model_out, out_ch)
+                out_queue.push(model_out)
 
-    @tr.jit.export
-    def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
-        is_daw_mono = x.size(0) == 1
-        in_n = x.shape[1]
-        x = self.channel_normalizer(x, self.is_input_mono(), self.daw_buffer)
-        x = self.resample_sandwich.process_in(x)
-        self._forward(x, params)
+    @tr.no_grad()
+    def forward(self, audio_inputs: List[Tensor], params: Optional[Tensor] = None) -> List[Tensor]:
+        # is_daw_mono = x.size(0) == 1
+        # in_n = x.size(1)
+        proc_audio_inputs = []
+        for x, in_ch, resampler in zip(audio_inputs, self.get_audio_input_channels(), self.in_resamplers):
+            x = self.channel_normalizer(x, in_ch, self.daw_buffer)
+            x = resampler(x)
+            proc_audio_inputs.append(x)
+        self._forward(proc_audio_inputs, params)
 
+        out_popped_n = self.io_out_buffers[0].size(1)
         if self.is_queue_saturated:
-            out_popped_n = self.out_queue.pop(self.io_out_buffer)
+            for out_queue, io_out_buffer in zip(self.out_queues, self.io_out_buffers):
+                out_popped_n = out_queue.pop(io_out_buffer)
         else:
-            out_popped_n = self.io_out_buffer.size(1)
-            self.io_out_buffer.fill_(0)
+            for io_out_buffer in self.io_out_buffers:
+                io_out_buffer.fill_(0)
 
-        x = self.resample_sandwich.process_out(self.io_out_buffer)
-        if self.use_debug_mode:
-            assert out_popped_n == self.io_out_buffer.size(1)
-            assert x.size(1) == in_n
-        x = self.channel_normalizer(x, is_daw_mono, self.daw_buffer)
-        return x
+        proc_audio_outputs = []
+        for io_out_buffer, out_ch, resampler in zip(self.io_out_buffers,
+                                                    self.get_audio_output_channels(),
+                                                    self.out_resamplers):
+            x = resampler.process_out(io_out_buffer)
+            if self.use_debug_mode:
+                assert out_popped_n == io_out_buffer.size(1)
+                # assert x.size(1) == in_n
+            x = self.channel_normalizer(x, out_ch, self.daw_buffer)
+            proc_audio_outputs.append(x)
+
+        return proc_audio_outputs
 
     @tr.jit.export
     def forward_bt(
@@ -301,6 +349,7 @@ class SampleQueueWrapper(nn.Module):
 
     @tr.jit.export
     def forward_offline(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
+        # TODO(cm): multiple inputs
         self.reset()
 
         delay_samples = self.calc_buffering_delay_samples() + self.calc_model_delay_samples()
@@ -337,12 +386,20 @@ class SampleQueueWrapper(nn.Module):
         return audio_out
 
     @tr.jit.export
-    def is_input_mono(self) -> bool:
-        return self.w2w_base.is_input_mono()
+    def get_audio_input_channels(self) -> List[int]:
+        return self.w2w_base.get_audio_input_channels()
 
     @tr.jit.export
-    def is_output_mono(self) -> bool:
-        return self.w2w_base.is_output_mono()
+    def get_audio_output_channels(self) -> List[int]:
+        return self.w2w_base.get_audio_output_channels()
+
+    @tr.jit.export
+    def is_realtime(self) -> bool:
+        return self.w2w_base.is_realtime()
+
+    @tr.jit.export
+    def is_gpu_compatible(self) -> bool:
+        return self.w2w_base.is_gpu_compatible()
 
     @tr.jit.export
     def get_native_sample_rates(self) -> List[int]:
@@ -351,6 +408,10 @@ class SampleQueueWrapper(nn.Module):
     @tr.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
         return self.w2w_base.get_native_buffer_sizes()
+
+    @tr.jit.export
+    def get_offline_audio_output_samples(self) -> int:
+        return self.w2w_base.get_offline_audio_output_samples()
 
     @tr.jit.export
     def is_resampling(self) -> bool:
@@ -382,15 +443,16 @@ class SampleQueueWrapper(nn.Module):
         if model_sr is not None:
             if self.use_debug_mode:
                 assert (
-                    len(self.get_native_sample_rates()) == 0
-                    or model_sr in self.get_native_sample_rates()
+                        len(self.get_native_sample_rates()) == 0
+                        or model_sr in self.get_native_sample_rates()
                 )
         else:
             model_sr = self.select_best_model_sr(daw_sr, self.get_native_sample_rates())
 
         io_bs = self.calc_resampled_buffer_size(daw_sr, model_sr, daw_bs)
 
-        self.resample_sandwich.set_sample_rates(daw_sr, model_sr, daw_bs)
+        for resampler in self.resamplers.values():
+            resampler.set_sample_rates(daw_sr, model_sr, daw_bs)
         self.params_resample_sandwich.set_sample_rates(daw_sr, model_sr, daw_bs)
         self.daw_sr = daw_sr
         self.model_sr = model_sr
@@ -399,8 +461,8 @@ class SampleQueueWrapper(nn.Module):
         if model_bs is not None:
             if self.use_debug_mode:
                 assert (
-                    len(self.get_native_buffer_sizes()) == 0
-                    or model_bs in self.get_native_buffer_sizes()
+                        len(self.get_native_buffer_sizes()) == 0
+                        or model_bs in self.get_native_buffer_sizes()
                 )
         else:
             model_bs = self.select_best_model_buffer_size(
@@ -412,26 +474,26 @@ class SampleQueueWrapper(nn.Module):
         self.io_bs = io_bs
         self.model_bs = model_bs
 
-        self.in_queue = CircularInplaceTensorQueue(
+        self.in_queues = [CircularInplaceTensorQueue(
             self.in_n_ch,
             (2 * self.io_bs) + self.model_bs,
             use_debug_mode=self.use_debug_mode,
-        )
+        ) for in_ch in self.get_audio_input_channels()]
         self.params_queue = CircularInplaceTensorQueue(
             self.w2w_base.MAX_N_PARAMS,
             (2 * self.io_bs) + self.model_bs,
             use_debug_mode=self.use_debug_mode,
-        )
-        self.out_queue = CircularInplaceTensorQueue(
-            self.out_n_ch,
+            )
+        self.out_queues = [CircularInplaceTensorQueue(
+            out_ch,
             (2 * self.io_bs) + self.model_bs,
             use_debug_mode=self.use_debug_mode,
-        )
+        ) for out_ch in self.get_audio_output_channels()]
 
         self.daw_buffer = tr.zeros((2, self.daw_bs))
-        self.model_in_buffer = tr.zeros((self.in_n_ch, self.model_bs))
+        self.model_in_buffers = [tr.zeros((in_ch, self.model_bs)) for in_ch in self.get_audio_input_channels()]
         self.params_buffer = tr.zeros((self.w2w_base.MAX_N_PARAMS, self.model_bs))
-        self.io_out_buffer = tr.zeros((self.out_n_ch, self.io_bs))
+        self.io_out_buffers = [tr.zeros((out_ch, self.io_bs)) for out_ch in self.get_audio_output_channels()]
 
         max_daw_queue_size = self.calc_max_daw_queue_size(
             self.daw_sr, self.daw_bs, self.model_sr, self.model_bs
@@ -446,13 +508,17 @@ class SampleQueueWrapper(nn.Module):
     @tr.jit.export
     def reset(self) -> None:
         self.w2w_base.reset()
-        self.in_queue.reset()
+        for queue in self.in_queues:
+            queue.reset()
+        for queue in self.out_queues:
+            queue.reset()
         self.params_queue.reset()
-        self.out_queue.reset()
         self.daw_buffer.fill_(0)
-        self.model_in_buffer.fill_(0)
+        for model_in_buffer in self.model_in_buffers:
+            model_in_buffer.fill_(0)
         self.params_buffer.fill_(0)
-        self.io_out_buffer.fill_(0)
+        for io_out_buffer in self.io_out_buffers:
+            io_out_buffer.fill_(0)
         self.bt_out_buffer.fill_(0)
         self.seen_n = 0
         self.is_queue_saturated = False
@@ -461,12 +527,15 @@ class SampleQueueWrapper(nn.Module):
     def get_preserved_attributes(self) -> List[str]:
         return [
             "forward_bt",
-            "is_input_mono",
-            "is_output_mono",
+            "get_input_audio_channels",
+            "get_output_audio_channels",
+            "is_realtime",
+            "is_gpu_compatible",
             "get_model_name",
             "get_model_authors",
             "get_native_sample_rates",
             "get_native_buffer_sizes",
+            "get_offline_audio_output_samples",
             "get_wet_default_value",
             "get_dry_default_value",
             "get_default_param_values",

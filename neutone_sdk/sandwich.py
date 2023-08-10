@@ -24,8 +24,10 @@ class ChannelNormalizerSandwich(nn.Module):
         self.use_debug_mode = use_debug_mode
         self.half_scalar = tr.tensor(0.5)
 
-    def forward(self, x: Tensor, should_be_mono: bool, out_buffer: Tensor) -> Tensor:
+    def forward(self, x: Tensor, n_ch: int, out_buffer: Tensor) -> Tensor:
+        should_be_mono = n_ch == 1
         if self.use_debug_mode:
+            assert n_ch == 1 or n_ch == 2  # TODO(cm): support more than stereo
             assert x.ndim == 2
             assert x.size(0) <= 2
             assert out_buffer.ndim == 2

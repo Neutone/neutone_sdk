@@ -3,19 +3,20 @@ import os
 from typing import Tuple
 
 import torch as tr
-from torch import Tensor
+from torch import Tensor, nn
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-class CircularInplaceTensorQueue:
+class CircularInplaceTensorQueue(nn.Module):
     def __init__(self, n_ch: int, max_size: int, use_debug_mode: bool = True) -> None:
         """
         Creates a FIFO queue designed for audio data that does not allocate any memory during normal use and performs
         as few memory operations as possible. The queue is also compatible with converting to TorchScript.
         """
+        super().__init__()
         self.use_debug_mode = use_debug_mode
         self.max_size = max_size
         self.queue = tr.zeros((n_ch, max_size))

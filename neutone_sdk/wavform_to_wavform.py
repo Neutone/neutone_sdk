@@ -203,7 +203,7 @@ class WaveformToWaveformBase(NeutoneModel):
         super().prepare_for_inference()
         for queue in self.in_queues:
             queue.use_debug_mode = False
-        self.in_queue.use_debug_mode = False
+            queue.eval()
         self.params_queue.use_debug_mode = False
 
     def forward(self, audio_inputs: List[Tensor], params: Optional[Tensor] = None) -> List[Tensor]:

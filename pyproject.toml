@@ -10,6 +10,7 @@ packages = [{include = "neutone_sdk"}]
 
 
 [tool.poetry.dependencies]
+click = ">=8.1.7,<9.0.0"
 python = "^3.7"
 numpy = "^1.21.6"
 torch = ">=1.11.0,<2.1.0"

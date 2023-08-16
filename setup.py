@@ -6,6 +6,7 @@ packages = ["neutone_sdk"]
 package_data = {"": ["*"], "neutone_sdk": ["assets/default_samples/*"]}
 
 install_requires = [
+    "click>=8.1.7,<9.0.0",
     "jsonschema>=4.4.0,<5.0.0",
     "numpy>=1.21.6,<2.0.0",
     "requests>=2.27.1,<3.0.0",

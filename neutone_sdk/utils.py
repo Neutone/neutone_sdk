@@ -105,6 +105,7 @@ def save_neutone_model(
 
     # TODO(cm): remove local import (currently prevents circular import)
     from neutone_sdk import SampleQueueWrapper
+    from neutone_sdk.benchmark import benchmark_latency_, benchmark_speed_
 
     sqw = SampleQueueWrapper(model)
 
@@ -114,7 +115,7 @@ def save_neutone_model(
 
         # We need to keep a copy because some models still don't implement reset
         # properly and when rendering the samples we might create unwanted state.
-        # 
+        #
         # We used to deepcopy but we found it breaks some models
         # script_copy = copy.deepcopy(script)
         buf = io.BytesIO()
@@ -160,13 +161,14 @@ def save_neutone_model(
         loaded_model.set_daw_sample_rate_and_buffer_size(48000, 512)
         loaded_model.reset()
         loaded_model.is_resampling()
-        log.info(
-            f"Buffering delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
-            f"{loaded_model.calc_buffering_delay_samples()}"
+        log.info("Running latency benchmark...")
+        benchmark_latency_(
+            str(root_dir / "model.nm"),
+            buffer_size=[128, 256, 512, 1024, 2048],
+            sample_rate=[48000],
         )
         log.info(
-            f"Model delay reported to the DAW for 48000 Hz sampling rate and 512 buffer size: "
-            f"{loaded_model.calc_model_delay_samples()}"
+            "We recommend running additional latency/speed benchmarks to get a better idea of model performance."
         )
 
         if submission:  # Do extra checks

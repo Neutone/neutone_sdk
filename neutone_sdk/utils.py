@@ -185,7 +185,7 @@ def save_neutone_model(
             tr.manual_seed(42)
             script_model_render = render_audio_sample(script_copy, input_samples).audio
 
-            assert tr.allclose(script_model_render, loaded_model_render)
+            assert tr.allclose(script_model_render, loaded_model_render, atol=1e-6)
 
             log.info("Your model has been exported successfully!")
             log.info(

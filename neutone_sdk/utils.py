@@ -66,6 +66,7 @@ def save_neutone_model(
     max_n_samples: int = MAX_N_AUDIO_SAMPLES,
     freeze: bool = False,
     optimize: bool = False,
+    speed_benchmark: bool = True,
 ) -> None:
     """
     Save a Neutone model to disk as a Torchscript file. Additionally include metadata file and samples as needed.
@@ -83,6 +84,8 @@ def save_neutone_model(
                 used (default of 3) for exceptional cases.
         freeze: If true, jit.freeze will be applied to the model.
         optimize: If true, jit.optimize_for_inference will be applied to the model.
+        speed_benchmark: If true, will run a speed benchmark when submission is also true.
+                Consider disabling for non-realtime models as it might take too long.
 
     Returns:
       Will create the following files:
@@ -161,15 +164,6 @@ def save_neutone_model(
         loaded_model.set_daw_sample_rate_and_buffer_size(48000, 512)
         loaded_model.reset()
         loaded_model.is_resampling()
-        log.info("Running latency benchmark...")
-        benchmark_latency_(
-            str(root_dir / "model.nm"),
-            buffer_size=[128, 256, 512, 1024, 2048],
-            sample_rate=[48000],
-        )
-        log.info(
-            "We recommend running additional latency/speed benchmarks to get a better idea of model performance."
-        )
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")
@@ -188,6 +182,24 @@ def save_neutone_model(
             script_model_render = render_audio_sample(script_copy, input_samples).audio
 
             assert tr.allclose(script_model_render, loaded_model_render, atol=1e-6)
+
+            log.info("Running benchmarks...")
+            log.info(
+                "Check out the README for additional information on how to run benchmarks with different parameters and (sample_rate, buffer_size) combinations."
+            )
+            log.info("Running default latency benchmark...")
+            benchmark_latency_(
+                str(root_dir / "model.nm"),
+            )
+            if speed_benchmark:
+                log.info(
+                    "Running speed benchmark... If this is taking too long consider disabling the speed_benchmark parameter."
+                )
+                benchmark_speed_(str(root_dir / "model.nm"))
+            else:
+                log.info(
+                    "Skipping speed_benchmark because the speed_benchmark parameter is set to False"
+                )
 
             log.info("Your model has been exported successfully!")
             log.info(

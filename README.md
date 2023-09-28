@@ -1,52 +1,28 @@
 # Neutone SDK
 
-We open source this SDK so researchers can wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer both functionality for loading the models locally in the plugin as well as contributing them to the default list of models that is available to anyone running the plugin. We hope this will both give an opportunity for researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
+The Neutone SDK is a tool for researchers that enables them to wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer both functionality for loading the models locally in the plugin as well as contributing them to the default list of models that is available to anyone running the plugin. We hope this will both give an opportunity for researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
+
+## Why use the Neutone SDK
+
+[JUCE](https://github.com/juce-framework/JUCE) is the industry standard for building audio plugins. Because of this knowledge of C++ is needed to be able to build even very simple audio plugins. However, it is rare for AI audio researchers to have extensive experience with C++ and be able to build such a plugin. Moreover, it is a serious time investment that could be spent developing better algorithms. Using Neutone it is possible to build models using familiar tools such at PyTorch and with a minimal amount of Python code wrap these models such that they can be executed by the Neutone Plugin. Getting a model up and running inside a DAW can be done in less than a day without any need for C++ code or knowledge.
+
+The SDK provides support for automatic buffering of inputs and outputs to your model, on-the-fly sample rate and stereo-mono conversion. It enables a model that can only be executed with a predefined number of samples to be used in the DAW at any sampling rate and any buffer size seamlessly. Additionally, within the SDK tools for benchmarking and profiling are readily available so you can easily debug and test the performance of your models.
 
 <a name="examples"/>
 
-## Examples and Notebooks
-
-- Full clipper distortion model example can be found [here](examples/example_clipper.py).
-- Example of a random overdrive model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found [here](examples/example_overdrive-random.py)
-- Notebooks for different models showing the entire workflow from training to exporting it using Neutone
-    - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1yPHU6PRWw1lRWZLUxXimIa6chFQ2JdRW?usp=sharing)
-    - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1qlN6xLvDYrLcAwS8yh2ecmNG_bEKlVI9?usp=sharing)
-    - [TCN FX Emulation](https://colab.research.google.com/drive/1gHZ-AEoYmfmWrjlKpKkK_SW1xzfxD24-?usp=sharing)
-
-## v1 Release
-
-The Neutone SDK is currently on version 1.0.0. Models exported with this version of the SDK will be incompatible with beta versions of the plugin to please make sure you are using the right version. 
-
-
-The restriction for a sampling rate of 48kHz and a buffer size of 2048 is now gone and the SDK contains a wrapper that supports on the fly resampling and queueing to accomodate the requirements of both the models and the DAW thanks to great work by [@christhetree](https://github.com/christhetree).
-
-
-The following are known shortcomings:
-- Freezing models on save can cause instabilities, we recommend trying to save models both with and without freeze.
-- Displaying metadata information does not currently work with local model loading in the plugin.
-- Lookahead and on the fly STFT transforms will be implemented at the SDK level in the near future but is currently possible with additional code.
-- Windows and M1 acceleration are currently not supported.
-
-Logs are currently dumped to `/Users/<username>/Library/Application Support/Qosmo/Neutone/neutone.log`
 
 ## Table of Contents
-- [Downloading the Neutone Plugin](#download)
 - [Installing the SDK](#install)
+- [Downloading the Neutone Plugin](#download)
+- [Examples](#examples)
 - [SDK Description](#description)
 - [SDK Usage](#usage)
-- [Examples](#examples)
+- [Benchmarking and Profiling](#benchmark)
+- [Known issues](#issues)
 - [Contributing to the SDK](#contributing)
 - [Credits](#credits)
 
 --- 
-
-
-<a name="download"/>
-
-## Downloading the Plugin
-
-The Neutone Plugin is available at [https://neutone.space](https://neutone.space). We currently offer VST3 and AU plugins that can be used to load the models created with this SDK. Please visit the website for more information.
-
 
 ## Installing the SDK
 
@@ -58,11 +34,36 @@ You can install `neutone_sdk` using pip:
 pip install neutone_sdk
 ```
 
+<a name="download"/>
+
+## Downloading the Plugin
+
+The Neutone Plugin is available at [https://neutone.space](https://neutone.space). We currently offer VST3 and AU plugins that can be used to load the models created with this SDK. Please visit the website for more information.
+
+
+## Examples and Notebooks
+
+If you just want to delve right and wrap a model in without going through a detailed description of what everything does we prepared these examples for you.
+
+- The clipper example shows how to wrap a very simple PyTorch module that does not contain any AI model. Check it out for getting a high level overview of what is needed for wrapping a model. It is available at [examples/example_clipper.py](examples/example_clipper.py).
+- An example with a simple convolutional model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found at [examples/example_overdrive-random.py](examples/example_overdrive-random.py). This does not contain the training code and assumes you have a pretrained `micro-tcn` model.
+- Notebooks for different models showing the entire workflow from training to exporting it using Neutone
+    - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1yPHU6PRWw1lRWZLUxXimIa6chFQ2JdRW?usp=sharing)
+    - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1qlN6xLvDYrLcAwS8yh2ecmNG_bEKlVI9?usp=sharing)
+    - [TCN FX Emulation](https://colab.research.google.com/drive/1gHZ-AEoYmfmWrjlKpKkK_SW1xzfxD24-?usp=sharing)
+
+
 <a name="description"/>
 
-## SDK Description
+## SDK Overview
 
-The SDK provides functionality for wrapping existing PyTorch models in a way that can make them executable within the VST plugin. At its core the plugin is sending chunks of audio samples at a certain sample rate as an input and expects the same amount of samples at the output. Thus the simplest models also follow this input-output format and an example can be seen in [example_clipper.py](https://github.com/QosmoInc/neutone_sdk/blob/main/examples/example_clipper.py).
+The SDK provides functionality for wrapping existing PyTorch models in a way that can make them executable within the VST plugin. At its core the plugin is sending chunks of audio samples at a certain sample rate as an input and expects the same amount of samples at the output. The user of the SDK can specify what sample rate(s) and buffer size(s) their models perform optimally at. The SDK then guarantees that the forward pass will receive audio at one of these (sample_rate, buffer_size) combinations (can be only one combination). Four knobs are available that allow the users of the plugin to feed in additional parameters to the model at runtime. They can be enabled or disabled as needed by the user of the SDK.
+
+
+Using the included export function a series of tests is automatically ran to ensure the models behave as expected and are ready to be loaded by the plugin.
+
+
+Benchmarking and profiling CLI tools are available for further debugging and testing of wrapped models. It is possible to benchmark the speed and latency of the models simulated at a range of DAW (sample_rate, buffere_size) combinations as well as profile the memory and CPU usage.
 
 <a name="usage"/>
 
@@ -149,6 +150,15 @@ The parameters will always take values between 0 and 1 and the `do_forward_pass`
 
 Moreover, the parameters sent by the plugin come in at a sample level granularity. By default, we take the mean of each buffer and return a single float (as a Tensor), but the `aggregate_param` method can be used to override the aggregation method. See the full clipper export file for an example of preserving this granularity.
 
+<a name="delay"/>
+
+### Reporting delay
+
+Some audio models will delay the audio for a certain amount of samples. This depends on the architecture of each particular model. In order for the wet and dry signal that is going through the plugin to be aligned users are required to report how many samples of delay their model induces. The `calc_model_delay_samples` can be used to specify the number of samples of delay. RAVE models on average have one buffer of delay (2048 samples) which is added statically and can be seen in the examples. Models implemented with overlap-add will have a delay equal to the number of samples used for crossfading as seen in the [Demucs model wrapper](https://neutone.space/2023/06/17/implementing-models-with-overlap-add-in-neutone/) or the [spectral filter example](examples/example_spectral_filter.py).
+
+### Filters
+
+It is common for AI models to act in unexpected ways when presented with inputs outside of the ones present in their training distribution. We provide a series of common filters (low bass, high pass, band pass, band stop) in the [neutone_sdk/filters.py](neutone_sdk/filters.py) file. These can be used during the forward pass to restrict the domain of the inputs going into the model. Some of them can induce a small amount of delay, check out the [examples/example_clipper_prefilter.py](examples/example_clipper_prefilter.py) file for a simple example on how to set up a filter.
 
 ### Submitting models
 
@@ -198,6 +208,89 @@ To submit a model, please [open an issue on the GitHub repository](https://githu
 - A short description of what the model does and how it can contribute to the community
 - A link to the `model.nm` file outputted by the `save_neutone_model` helper function
 
+<a name="benchmark"/>
+
+## Benchmarking and Profiling
+
+The SDK provides three CLI tools that can be used to debug and test wrapped models.
+
+### Benchmarking Speed
+
+Example:
+```
+$ python -m neutone_sdk.benchmark benchmark-speed --model_file model.nm
+INFO:__main__:Running benchmark for buffer sizes (128, 256, 512, 1024, 2048) and sample rates (48000,). Outliers will be removed from the calculation of mean and std and displayed separately if existing.
+INFO:__main__:Sample rate:  48000 | Buffer size:    128 | duration:  0.014±0.002 | 1/RTF:  5.520 | Outliers: [0.008]
+INFO:__main__:Sample rate:  48000 | Buffer size:    256 | duration:  0.028±0.003 | 1/RTF:  5.817 | Outliers: []
+INFO:__main__:Sample rate:  48000 | Buffer size:    512 | duration:  0.053±0.003 | 1/RTF:  6.024 | Outliers: []
+INFO:__main__:Sample rate:  48000 | Buffer size:   1024 | duration:  0.106±0.000 | 1/RTF:  6.056 | Outliers: []
+INFO:__main__:Sample rate:  48000 | Buffer size:   2048 | duration:  0.212±0.000 | 1/RTF:  6.035 | Outliers: [0.213]
+```
+
+Running the speed benchmark will automatically run random inputs through the model at a sample rate of 48000 and buffer sizes of (128, 256, 512, 1024, 2048) and report the average time taken to execute inference for one buffer. From this the `1/RTF` is calculated which represents how much faster than realtime the model is. As this number gets higher, the model will use fewer resources within the DAW. It is necessary for this number to be bigger than 1 for the model to be able to be executed in realtime on the machine that the benchmark is ran on.
+
+The sample rates and buffer sizes being tested, as well as the number of times the benchmark is internally repeated to calculate the averages and the number of threads used for the computation are available as parameters. Run `python -m neutone_sdk.benchmark benchmark-speed --help` for more information. When specifiying custom sample rates or buffer sizes each individual one needs to be passed to the CLI separately. For example: `--sample_rate 48000 --sample_rate 44100 --buffer_size 32 --buffer_size 64`.
+
+While the speed benchmark should be fast as the models are generally speaking required to be realtime it is possible to get stuck if the model is too slow. Make sure you choose an appropiate number of sample rates and buffer sizes to test.
+
+### Benchmarking Latency
+
+Example:
+```bash
+$ python -m neutone_sdk.benchmark benchmark-latency model.nm                    
+INFO:__main__:Native buffer sizes: [2048], Native sample rates: [48000]
+INFO:__main__:Model exports/ravemodel/model.nm has the following delays for each sample rate / buffer size combination (lowest delay first):
+INFO:__main__:Sample rate:  48000 | Buffer size:   2048 | Total delay:      0 | (Buffering delay:      0 | Model delay:      0)
+INFO:__main__:Sample rate:  48000 | Buffer size:   1024 | Total delay:   1024 | (Buffering delay:   1024 | Model delay:      0)
+INFO:__main__:Sample rate:  48000 | Buffer size:    512 | Total delay:   1536 | (Buffering delay:   1536 | Model delay:      0)
+INFO:__main__:Sample rate:  48000 | Buffer size:    256 | Total delay:   1792 | (Buffering delay:   1792 | Model delay:      0)
+INFO:__main__:Sample rate:  44100 | Buffer size:    128 | Total delay:   1920 | (Buffering delay:   1920 | Model delay:      0)
+INFO:__main__:Sample rate:  48000 | Buffer size:    128 | Total delay:   1920 | (Buffering delay:   1920 | Model delay:      0)
+INFO:__main__:Sample rate:  44100 | Buffer size:    256 | Total delay:   2048 | (Buffering delay:   2048 | Model delay:      0)
+INFO:__main__:Sample rate:  44100 | Buffer size:    512 | Total delay:   2048 | (Buffering delay:   2048 | Model delay:      0)
+INFO:__main__:Sample rate:  44100 | Buffer size:   1024 | Total delay:   2048 | (Buffering delay:   2048 | Model delay:      0)
+INFO:__main__:Sample rate:  44100 | Buffer size:   2048 | Total delay:   2048 | (Buffering delay:   2048 | Model delay:      0)
+```
+
+Running the speed benchmark will automatically compute the latency of the model at combinations of `sample_rate=(44100, 48000)` and `buffer_size=(128, 256, 512, 1024, 2048)`. This gives a general overview of what will happen with common DAW settings. The total delay is split into buffering delay and model delay. The model delay is reported by the model wrapped as explained [above](#delay). The buffering delay is automatically computed by the SDK taking into consideration the combination of `(sample_rate, buffer_size)` specified by the wrapper (the native ones) and the one specified by the DAW at runtime. Running the model at its native `(sample_rate, buffer_size)` combination(s) will incur minimum delay.
+
+Similar to the speed benchmark above, the tested combinations of `(sample_rate, buffer_size)` can be specified from the CLI. Run `python -m neutone_sdk.benchmark benchmark-latency --help` for more info.
+
+### Profiling
+```bash
+$ python -m neutone_sdk.benchmark profile --model_file exports/ravemodel/model.nm
+INFO:__main__:Profiling model exports/ravemodel/model.nm at sample rate 48000 and buffer size 128
+STAGE:2023-09-28 14:34:53 96328:4714960 ActivityProfilerController.cpp:311] Completed Stage: Warm Up
+30it [00:00, 37.32it/s]
+STAGE:2023-09-28 14:34:54 96328:4714960 ActivityProfilerController.cpp:317] Completed Stage: Collection
+STAGE:2023-09-28 14:34:54 96328:4714960 ActivityProfilerController.cpp:321] Completed Stage: Post Processing
+INFO:__main__:Displaying Total CPU Time
+INFO:__main__:--------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                            Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+--------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                         forward        98.54%     799.982ms       102.06%     828.603ms      26.729ms           0 b    -918.17 Kb            31  
+               aten::convolution         0.12%     963.000us         0.95%       7.739ms     175.886us     530.62 Kb    -143.50 Kb            44
+...
+...
+Full output removed from GitHub.
+
+```
+
+The profiling tool will run the model at a sample rate of 48000 and a buffer size of 128 under the PyTorch profiler and output a series of insights, such as the Total CPU Time, Total CPU Memory Usage (per function) and Grouped CPU Memory Usage (per group of function calls). This can be used to identify bottlenecks into your model code (even within the model call within the `do_forward_pass` call).
+
+As above, it can be ran at different combinations of sample rates and buffer sizes as well as different numbers of threads. Run `python -m neutone_sdk.benchmark profile --help` for more info.
+
+
+<a name="issues"/>
+
+## Known issues
+
+- Freezing models on save can cause instabilities and thus freezing is disabled by default. We recommend trying to save models both with and without freeze.
+- Displaying metadata information does not currently work with local model loading in the plugin.
+- Lookahead and on the fly STFT transforms will be implemented at the SDK level in the near future but is currently possible with additional code. An example is available in [this file](neutone_sdk/realtime_stft.py).
+- M1 acceleration is currently not supported.
+
+
 <a name="contributing"/>
 
 ## Contributing to the SDK
@@ -205,8 +298,9 @@ To submit a model, please [open an issue on the GitHub repository](https://githu
 We welcome any contributions to the SDK. Please add types wherever possible and use the `black` formatter for readability.
 
 The current roadmap is:
-- Additional testing and benchmarking of models during or after exporting
 - Implement lookahead and on the fly STFT transforms
+- Add support offline inference of entire audio files
+- Add support for other types of parameters
 
 <a name="credits"/>
 
@@ -214,4 +308,3 @@ The current roadmap is:
 
 The audacitorch project was a major inspiration for the development of the SDK. [Check it out here](
 https://github.com/hugofloresgarcia/audacitorch)
-

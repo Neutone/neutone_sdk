@@ -245,25 +245,13 @@ def profile_sqw(
 @click.option("--model_file", help="Path to model file")
 @click.option(
     "--buffer_size",
-    default=(128, 256, 512, 1024, 2048),
+    default=(128,),
     multiple=True,
     help="Buffer sizes to benchmark",
 )
 @click.option(
     "--sample_rate",
-    default=(
-        44100,
-        48000,
-    ),
-    multiple=True,
-    help="Sample rates to benchmark",
-)
-@click.option(
-    "--sample_rate",
-    default=(
-        44100,
-        48000,
-    ),
+    default=(48000,),
     multiple=True,
     help="Sample rates to benchmark",
 )

@@ -1,12 +1,12 @@
 # Neutone SDK
 
-The Neutone SDK is a tool for researchers that enables them to wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer both functionality for loading the models locally in the plugin as well as contributing them to the default list of models that is available to anyone running the plugin. We hope this will both give an opportunity for researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
+The Neutone SDK is a tool for researchers that enables them to wrap their own audio models and run them in a DAW using our [Neutone Plugin](https://neutone.space/). We offer functionality for both loading the models locally in the plugin and contributing them to the default list of models that is available to anyone running the plugin. We hope this will enable researchers to easily try their models in a DAW, but also provide creators with a collection of interesting models.
 
 ## Why use the Neutone SDK
 
-[JUCE](https://github.com/juce-framework/JUCE) is the industry standard for building audio plugins. Because of this knowledge of C++ is needed to be able to build even very simple audio plugins. However, it is rare for AI audio researchers to have extensive experience with C++ and be able to build such a plugin. Moreover, it is a serious time investment that could be spent developing better algorithms. Using Neutone it is possible to build models using familiar tools such at PyTorch and with a minimal amount of Python code wrap these models such that they can be executed by the Neutone Plugin. Getting a model up and running inside a DAW can be done in less than a day without any need for C++ code or knowledge.
+[JUCE](https://github.com/juce-framework/JUCE) is the industry standard for building audio plugins. Because of this, knowledge of C++ is needed to be able to build even very simple audio plugins. However, it is rare for AI audio researchers to have extensive experience with C++ and be able to build such a plugin. Moreover, it is a serious time investment that could be spent developing better algorithms. Neutone makes it possible to build models using familiar tools such as PyTorch and with a minimal amount of Python code wrap these models such that they can be executed by the Neutone Plugin. Getting a model up and running inside a DAW can be done in less than a day without any need for C++ code or knowledge.
 
-The SDK provides support for automatic buffering of inputs and outputs to your model, on-the-fly sample rate and stereo-mono conversion. It enables a model that can only be executed with a predefined number of samples to be used in the DAW at any sampling rate and any buffer size seamlessly. Additionally, within the SDK tools for benchmarking and profiling are readily available so you can easily debug and test the performance of your models.
+The SDK provides support for automatic buffering of inputs and outputs to your model and on-the-fly sample rate and stereo-mono conversion. It enables a model that can only be executed with a predefined number of samples to be used in the DAW at any sampling rate and any buffer size seamlessly. Additionally, within the SDK tools for benchmarking and profiling are readily available so you can easily debug and test the performance of your models.
 
 <a name="examples"/>
 
@@ -43,11 +43,11 @@ The Neutone Plugin is available at [https://neutone.space](https://neutone.space
 
 ## Examples and Notebooks
 
-If you just want to delve right and wrap a model in without going through a detailed description of what everything does we prepared these examples for you.
+If you just want to wrap a model without going through a detailed description of what everything does we prepared these examples for you.
 
 - The clipper example shows how to wrap a very simple PyTorch module that does not contain any AI model. Check it out for getting a high level overview of what is needed for wrapping a model. It is available at [examples/example_clipper.py](examples/example_clipper.py).
 - An example with a simple convolutional model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found at [examples/example_overdrive-random.py](examples/example_overdrive-random.py). This does not contain the training code and assumes you have a pretrained `micro-tcn` model.
-- Notebooks for different models showing the entire workflow from training to exporting it using Neutone
+- We also have Notebooks for more complicated models showing the entire workflow from training to exporting them using Neutone:
     - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1yPHU6PRWw1lRWZLUxXimIa6chFQ2JdRW?usp=sharing)
     - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1qlN6xLvDYrLcAwS8yh2ecmNG_bEKlVI9?usp=sharing)
     - [TCN FX Emulation](https://colab.research.google.com/drive/1gHZ-AEoYmfmWrjlKpKkK_SW1xzfxD24-?usp=sharing)
@@ -57,13 +57,13 @@ If you just want to delve right and wrap a model in without going through a deta
 
 ## SDK Overview
 
-The SDK provides functionality for wrapping existing PyTorch models in a way that can make them executable within the VST plugin. At its core the plugin is sending chunks of audio samples at a certain sample rate as an input and expects the same amount of samples at the output. The user of the SDK can specify what sample rate(s) and buffer size(s) their models perform optimally at. The SDK then guarantees that the forward pass will receive audio at one of these (sample_rate, buffer_size) combinations (can be only one combination). Four knobs are available that allow the users of the plugin to feed in additional parameters to the model at runtime. They can be enabled or disabled as needed by the user of the SDK.
+The SDK provides functionality for wrapping existing PyTorch models in a way that can make them executable within the VST plugin. At its core the plugin is sending chunks of audio samples at a certain sample rate as an input and expects the same amount of samples at the output. The user of the SDK can specify what sample rate(s) and buffer size(s) their models perform optimally at. The SDK then guarantees that the forward pass of the model will receive audio at one of these (sample_rate, buffer_size) combinations. Four knobs are available that allow the users of the plugin to feed in additional parameters to the model at runtime. They can be enabled or disabled as needed via the SDK.
 
 
 Using the included export function a series of tests is automatically ran to ensure the models behave as expected and are ready to be loaded by the plugin.
 
 
-Benchmarking and profiling CLI tools are available for further debugging and testing of wrapped models. It is possible to benchmark the speed and latency of the models simulated at a range of DAW (sample_rate, buffere_size) combinations as well as profile the memory and CPU usage.
+Benchmarking and profiling CLI tools are available for further debugging and testing of wrapped models. It is possible to benchmark the speed and latency of a model on a range of simulated common DAW (sample_rate, buffere_size) combinations as well as profile the memory and CPU usage.
 
 <a name="usage"/>
 
@@ -108,15 +108,15 @@ class ClipperModelWrapper(WaveformToWaveformBase):
 
 The method that does most of the work is `do_forward_pass`. In this case it is just a simple passthrough, but we will use it to handle parameters later on.
 
-By default the VST runs as `stereo-stereo` but when mono is desired for the model we can use the `is_input_mono` and `is_output_mono` to inform the SDK and have the inputs and outputs converted automatically. If `is_input_mono` is toggled an averaged `(1, buffer_size)` shaped Tensor will be passed as an input instead of `(2, buffer_size)`. If `is_output_mono` is toggled, `do_forward_pass` is expected to return a mono Tensor (shape `(1, buffer_size)`) that will then be duplicated across both channels at the output of the VST. This is done within the SDK to avoid unnecessary memory allocations on each pass.
+By default the VST runs as `stereo-stereo` but when mono is desired for the model we can use the `is_input_mono` and `is_output_mono` to inform the SDK and have the inputs and outputs converted automatically. If `is_input_mono` is toggled an averaged `(1, buffer_size)` shaped Tensor will be passed as an input instead of `(2, buffer_size)`. If `is_output_mono` is toggled, `do_forward_pass` is expected to return a mono Tensor (shape `(1, buffer_size)`) that will then be duplicated across both channels at the output of the VST. This is done within the SDK to avoid unnecessary memory allocations during each pass.
 
-`get_native_sample_rates` and `get_native_buffer_sizes` can be used to specify any preferred sample rates or buffer sizes. In most cases these are expected to only have one element but extra flexibility is provided for more complex models. In case multiple options are provided the SDK will try to find the best one for the current setting of the DAW. Whenever the sample rate or buffer size is different from the one of the DAW a wrapper is automatically triggered that converts to the correct sampling rate or implements a FIFO queue for the requested buffer size or both. This will incur a small performance penalty and add some amount of delay. In case a model is compatible with any sample rate and/or buffer_size these lists can be left empty.
+`get_native_sample_rates` and `get_native_buffer_sizes` can be used to specify any preferred sample rates or buffer sizes. In most cases these are expected to only have one element but extra flexibility is provided for more complex models. In case multiple options are provided the SDK will try to find the best one for the current setting of the DAW. Whenever the sample rate or buffer size is different from the one of the DAW a wrapper is automatically triggered that converts to the correct sampling rate or implements a FIFO queue for the requested buffer size or both. This will incur a small performance penalty and add some amount of delay. In case a model is compatible with any sample rate and/or buffer size these lists can be left empty.
 
-This means that the tensor `x` in the `do_forward_pass` method is guaranteed to be of shape `(1 if is_input_mono else 2, buffer_size)`  where `buffer_size` will be chosen at runtime from the list provided in the `get_native_buffer_sizes` method.
+This means that the tensor `x` in the `do_forward_pass` method is guaranteed to be of shape `(1 if is_input_mono else 2, buffer_size)`  where `buffer_size` will be chosen at runtime from the list provided in the `get_native_buffer_sizes` method. The tensor `x` will also be at one of the sampling rates from the list provided in the `get_native_sample_rates` method.
 
 ### Exporting models and loading in the plugin
 
-We provide a `save_neutone_model` helper function that saves models to disk. By default this will convert models to TorchScript and run them through a series of checks to ensure they can be loaded by the plugin. The resulting `model.nm` file can be loaded within the plugin using the `load your own` button. Read below for how to submit models to the default collection.
+We provide a `save_neutone_model` helper function that saves models to disk. By default this will convert models to TorchScript and run them through a series of checks to ensure they can be loaded by the plugin. The resulting `model.nm` file can be loaded within the plugin using the `load your own` button. Read below for how to submit models to the default collection visible to everyone using the plugin.
 
 ### Parameters
 
@@ -154,7 +154,15 @@ Moreover, the parameters sent by the plugin come in at a sample level granularit
 
 ### Reporting delay
 
-Some audio models will delay the audio for a certain amount of samples. This depends on the architecture of each particular model. In order for the wet and dry signal that is going through the plugin to be aligned users are required to report how many samples of delay their model induces. The `calc_model_delay_samples` can be used to specify the number of samples of delay. RAVE models on average have one buffer of delay (2048 samples) which is added statically and can be seen in the examples. Models implemented with overlap-add will have a delay equal to the number of samples used for crossfading as seen in the [Demucs model wrapper](https://neutone.space/2023/06/17/implementing-models-with-overlap-add-in-neutone/) or the [spectral filter example](examples/example_spectral_filter.py).
+Some audio models will delay the audio for a certain amount of samples. This depends on the architecture of each particular model. In order for the wet and dry signal that is going through the plugin to be aligned users are required to report how many samples of delay their model induces. The `calc_model_delay_samples` can be used to specify the number of samples of delay. RAVE models on average have one buffer of delay (2048 samples) which is communicated statically in the `calc_model_delay_samples` method and can be seen in the examples. Models implemented with overlap-add will have a delay equal to the number of samples used for crossfading as seen in the [Demucs model wrapper](https://neutone.space/2023/06/17/implementing-models-with-overlap-add-in-neutone/) or the [spectral filter example](examples/example_spectral_filter.py). 
+
+Calculating the delay your model adds can be difficult, especially since there can be multiple different sources of delay that need to be combined (e.g. cossfading delay, filter delay, lookahead buffer delay, and / or neural networks trained on unaligned dry and wet audio). To help with correctly reporting delay, we provide tools for automatically calculating delay, please see the [Benchmarking Latency](#latency) section for more details.
+
+### Lookbehind Buffers
+
+Adding a lookbehind buffer to your model can be useful for models that require a certain amount of additional context to output useful results. A lookbehind buffer can be enabled easily by indicating how many samples of lookbehind you need in the `get_look_behind_samples` method. When this method returns a number greater than zero, the `do_forward_pass` method will always receive a tensor of shape `(in_n_ch, look_behind_samples + buffer_size)`, but must still return a tensor of shape `(out_n_ch, buffer_size)` of the latest samples.
+
+We recommend avoiding using a look-behind buffer when possible since it makes your model less efficient and can result in wasted calculations during each forward pass. If using a purely convolutional model, try switching all the convolutions to cached convolutions instead.
 
 ### Filters
 
@@ -233,6 +241,8 @@ The sample rates and buffer sizes being tested, as well as the number of times t
 
 While the speed benchmark should be fast as the models are generally speaking required to be realtime it is possible to get stuck if the model is too slow. Make sure you choose an appropiate number of sample rates and buffer sizes to test.
 
+<a name="latency"/>
+
 ### Benchmarking Latency
 
 Example:
@@ -252,7 +262,7 @@ INFO:__main__:Sample rate:  44100 | Buffer size:   1024 | Total delay:   2048 | 
 INFO:__main__:Sample rate:  44100 | Buffer size:   2048 | Total delay:   2048 | (Buffering delay:   2048 | Model delay:      0)
 ```
 
-Running the speed benchmark will automatically compute the latency of the model at combinations of `sample_rate=(44100, 48000)` and `buffer_size=(128, 256, 512, 1024, 2048)`. This gives a general overview of what will happen with common DAW settings. The total delay is split into buffering delay and model delay. The model delay is reported by the model wrapped as explained [above](#delay). The buffering delay is automatically computed by the SDK taking into consideration the combination of `(sample_rate, buffer_size)` specified by the wrapper (the native ones) and the one specified by the DAW at runtime. Running the model at its native `(sample_rate, buffer_size)` combination(s) will incur minimum delay.
+Running the speed benchmark will automatically compute the latency of the model at combinations of `sample_rate=(44100, 48000)` and `buffer_size=(128, 256, 512, 1024, 2048)`. This gives a general overview of what will happen for common DAW settings. The total delay is split into buffering delay and model delay. The model delay is reported by the creator of the model in the model wrapper as explained [above](#delay). The buffering delay is automatically computed by the SDK taking into consideration the combination of `(sample_rate, buffer_size)` specified by the wrapper (the native ones) and the one specified by the DAW at runtime. Running the model at its native `(sample_rate, buffer_size)` combination(s) will incur minimum delay.
 
 Similar to the speed benchmark above, the tested combinations of `(sample_rate, buffer_size)` can be specified from the CLI. Run `python -m neutone_sdk.benchmark benchmark-latency --help` for more info.
 
@@ -276,9 +286,9 @@ Full output removed from GitHub.
 
 ```
 
-The profiling tool will run the model at a sample rate of 48000 and a buffer size of 128 under the PyTorch profiler and output a series of insights, such as the Total CPU Time, Total CPU Memory Usage (per function) and Grouped CPU Memory Usage (per group of function calls). This can be used to identify bottlenecks into your model code (even within the model call within the `do_forward_pass` call).
+The profiling tool will run the model at a sample rate of 48000 and a buffer size of 128 under the PyTorch profiler and output a series of insights, such as the Total CPU Time, Total CPU Memory Usage (per function) and Grouped CPU Memory Usage (per group of function calls). This can be used to identify bottlenecks in your model code (even within the model call within the `do_forward_pass` call).
 
-As above, it can be ran at different combinations of sample rates and buffer sizes as well as different numbers of threads. Run `python -m neutone_sdk.benchmark profile --help` for more info.
+Similar to benchmarking, it can be ran at different combinations of sample rates and buffer sizes as well as different numbers of threads. Run `python -m neutone_sdk.benchmark profile --help` for more info.
 
 
 <a name="issues"/>
@@ -286,9 +296,10 @@ As above, it can be ran at different combinations of sample rates and buffer siz
 ## Known issues
 
 - Freezing models on save can cause instabilities and thus freezing is disabled by default. We recommend trying to save models both with and without freeze.
-- Displaying metadata information does not currently work with local model loading in the plugin.
-- Lookahead and on the fly STFT transforms will be implemented at the SDK level in the near future but is currently possible with additional code. An example is available in [this file](neutone_sdk/realtime_stft.py).
+- Displaying some metadata information does not currently work with local model loading in the plugin.
+- Lookahead buffers will be implemented at the SDK level in the near future but is currently possible with additional code. An example is available in [this file](neutone_sdk/realtime_stft.py).
 - M1 acceleration is currently not supported.
+- Wrapping more complicated models can result in obscure TorchScript errors.
 
 
 <a name="contributing"/>
@@ -298,9 +309,11 @@ As above, it can be ran at different combinations of sample rates and buffer siz
 We welcome any contributions to the SDK. Please add types wherever possible and use the `black` formatter for readability.
 
 The current roadmap is:
-- Implement lookahead and on the fly STFT transforms
-- Add support offline inference of entire audio files
-- Add support for other types of parameters
+- Adding a TCN library and an overhaul of the TCN-based example models
+- Supporting non-realtime models
+- Supporting models with multiple inputs and / or outputs
+- Supporting more and different types of parameters
+- Looking into alternatives for TorchScript
 
 <a name="credits"/>
 

@@ -48,9 +48,10 @@ If you just want to wrap a model without going through a detailed description of
 - The clipper example shows how to wrap a very simple PyTorch module that does not contain any AI model. Check it out for getting a high level overview of what is needed for wrapping a model. It is available at [examples/example_clipper.py](examples/example_clipper.py).
 - An example with a simple convolutional model based on [micro-tcn](https://github.com/csteinmetz1/micro-tcn) can be found at [examples/example_overdrive-random.py](examples/example_overdrive-random.py). This does not contain the training code and assumes you have a pretrained `micro-tcn` model.
 - We also have Notebooks for more complicated models showing the entire workflow from training to exporting them using Neutone:
+    - [TCN FX Emulation](https://colab.research.google.com/drive/1gHZ-AEoYmfmWrjlKpKkK_SW1xzfxD24-?usp=sharing)
     - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1yPHU6PRWw1lRWZLUxXimIa6chFQ2JdRW?usp=sharing)
     - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1qlN6xLvDYrLcAwS8yh2ecmNG_bEKlVI9?usp=sharing)
-    - [TCN FX Emulation](https://colab.research.google.com/drive/1gHZ-AEoYmfmWrjlKpKkK_SW1xzfxD24-?usp=sharing)
+    - [NoiseBandNet Audio Reconstruction](https://colab.research.google.com/drive/1KJij2CqhLf7ac6aljMckFL71WJrCNg66?usp=sharing)
 
 
 <a name="description"/>
@@ -156,7 +157,7 @@ Moreover, the parameters sent by the plugin come in at a sample level granularit
 
 Some audio models will delay the audio for a certain amount of samples. This depends on the architecture of each particular model. In order for the wet and dry signal that is going through the plugin to be aligned users are required to report how many samples of delay their model induces. The `calc_model_delay_samples` can be used to specify the number of samples of delay. RAVE models on average have one buffer of delay (2048 samples) which is communicated statically in the `calc_model_delay_samples` method and can be seen in the examples. Models implemented with overlap-add will have a delay equal to the number of samples used for crossfading as seen in the [Demucs model wrapper](https://neutone.space/2023/06/17/implementing-models-with-overlap-add-in-neutone/) or the [spectral filter example](examples/example_spectral_filter.py). 
 
-Calculating the delay your model adds can be difficult, especially since there can be multiple different sources of delay that need to be combined (e.g. cossfading delay, filter delay, lookahead buffer delay, and / or neural networks trained on unaligned dry and wet audio). To help with correctly reporting delay, we provide tools for automatically calculating delay, please see the [Benchmarking Latency](#latency) section for more details.
+Calculating the delay your model adds can be difficult, especially since there can be multiple different sources of delay that need to be combined (e.g. cossfading delay, filter delay, lookahead buffer delay, and / or neural networks trained on unaligned dry and wet audio). It's worth spending some extra time testing the model in your DAW to make sure the delay is being reported correctly.
 
 ### Lookbehind Buffers
 

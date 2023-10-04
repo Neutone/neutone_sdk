@@ -31,7 +31,7 @@ class SampleQueueWrapper(nn.Module):
     ) -> None:
         """
         Creates a SampleQueueWrapper (SQW) which wraps a WaveformToWaveformBase Neutone model to make it compatible
-        with varying DAW sampling rates, buffer sizes, and also delay reporting, and multithreading. test
+        with varying DAW sampling rates, buffer sizes, and also delay reporting, and multithreading.
 
         Related issue: https://github.com/QosmoInc/neutone_sdk/issues/6
         """

@@ -54,3 +54,6 @@ def test_interpolation_resamplers(in_n_ch: int = 2, out_n_ch: int = 2) -> None:
             out_audio.unsqueeze(0), in_bs, mode="linear", align_corners=True
         ).squeeze(0)
         assert tr.allclose(resampled_1, resampled_3, atol=1e-5)
+
+
+test_interpolation_resamplers()

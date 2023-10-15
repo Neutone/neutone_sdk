@@ -191,7 +191,7 @@ class InterpolationResampler(ResampleSandwich):
         return self._process(x, self.out_bs, self.in_bs)
 
 
-class InplaceInterpolationResampler(ResampleSandwich):
+class InplaceLinearResampler(ResampleSandwich):
     """
     Interpolation-based resampling using a custom implementation.
     Does not dynamically allocate memory and is ~40% faster than the PyTorch implementation for common sampling rates.
@@ -225,6 +225,7 @@ class InplaceInterpolationResampler(ResampleSandwich):
         super().__init__(in_sr, out_sr, in_bs, use_debug_mode)
 
     def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
+        # Repeated code due to TorchScript limitations
         self.in_sr = in_sr
         self.out_sr = out_sr
         self.in_bs = in_bs
@@ -256,44 +257,15 @@ class InplaceInterpolationResampler(ResampleSandwich):
             return y
         tr.index_select(y, dim=1, index=y0_idx, out=y0)
         tr.index_select(y, dim=1, index=y1_idx, out=y1)
+        # Calc interpolated y using y0 as storage
         tr.sub(y1, y0, out=y1)
         tr.mul(y1, x, out=y1)
         tr.add(y0, y1, out=y0)
         return y0
 
-    # def _process_hermite(
-    #     self,
-    #     y: Tensor,
-    #     n_ch: int,
-    #     in_bs: int,
-    #     x: Tensor,
-    #     y0_idx: Tensor,
-    #     y1_idx: Tensor,
-    #     y2_idx: Tensor,
-    #     y3_idx: Tensor,
-    #     y0: Tensor,
-    #     y1: Tensor,
-    #     y2: Tensor,
-    #     y3: Tensor,
-    # ) -> Tensor:
-    #     if self.use_debug_mode:
-    #         assert y.shape == (n_ch, in_bs)
-    #     if not self.is_resampling():
-    #         return y
-    #     tr.index_select(y, dim=1, index=y0_idx, out=y0)
-    #     tr.index_select(y, dim=1, index=y1_idx, out=y1)
-    #     tr.index_select(y, dim=1, index=y2_idx, out=y2)
-    #     tr.index_select(y, dim=1, index=y3_idx, out=y3)
-    #     c0 = y0
-    #     c1 = 0.5 * tr.sub(y1, y0, out=y1)
-    #     tr.sub(y1, y0, out=y1)
-    #     tr.mul(y1, x, out=y1)
-    #     tr.add(y0, y1, out=y0)
-    #     return y0
-
-    def process_in(self, x: Tensor) -> Tensor:
+    def process_in(self, y: Tensor) -> Tensor:
         return self._process(
-            x,
+            y,
             self.in_n_ch,
             self.in_bs,
             self.x_in,
@@ -303,9 +275,9 @@ class InplaceInterpolationResampler(ResampleSandwich):
             self.y1_in,
         )
 
-    def process_out(self, x: Tensor) -> Tensor:
+    def process_out(self, y: Tensor) -> Tensor:
         return self._process(
-            x,
+            y,
             self.out_n_ch,
             self.out_bs,
             self.x_out,
@@ -325,3 +297,159 @@ class InplaceInterpolationResampler(ResampleSandwich):
         y1_idx = tr.clip(y1_idx, 0, in_bs - 1)  # Prevents floating point errors
         x = tr.clip(x - y0_idx, 0.0, 1.0)  # Prevents floating point errors
         return x, y0_idx, y1_idx
+
+
+class Inplace4pHermiteResampler(InplaceLinearResampler):
+    def __init__(
+            self,
+            in_n_ch: int,
+            out_n_ch: int,
+            in_sr: int,
+            out_sr: int,
+            in_bs: int,
+            use_debug_mode: bool = True,
+    ) -> None:
+        # Buffers required for process_in
+        self.y_m1_idx_in = None
+        self.y2_idx_in = None
+        self.y_m1_in = None
+        self.y2_in = None
+        self.c1_in = None
+        self.c2_in = None
+        self.c3_in = None
+        # Buffers required for process_out
+        self.y_m1_idx_out = None
+        self.y2_idx_out = None
+        self.y_m1_out = None
+        self.y2_out = None
+        self.c1_out = None
+        self.c2_out = None
+        self.c3_out = None
+        super().__init__(in_n_ch, out_n_ch, in_sr, out_sr, in_bs, use_debug_mode)
+
+    def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
+        # Repeated code due to TorchScript limitations
+        self.in_sr = in_sr
+        self.out_sr = out_sr
+        self.in_bs = in_bs
+        self.out_bs = math.ceil(self.in_bs * self.out_sr / self.in_sr)
+        if self.use_debug_mode:
+            assert self.out_bs > 4
+
+        self.x_in, self.y0_idx_in, self.y1_idx_in = self.calc_x_and_indices(self.in_bs, self.out_bs)
+        self.y0_in = tr.zeros((self.in_n_ch, self.out_bs))
+        self.y1_in = tr.zeros((self.in_n_ch, self.out_bs))
+        self.x_out, self.y0_idx_out, self.y1_idx_out = self.calc_x_and_indices(self.out_bs, self.in_bs)
+        self.y0_out = tr.zeros((self.out_n_ch, self.in_bs))
+        self.y1_out = tr.zeros((self.out_n_ch, self.in_bs))
+
+        self.y_m1_idx_in = tr.clip(self.y0_idx_in - 1, 0, self.in_bs - 1)
+        self.y2_idx_in = tr.clip(self.y1_idx_in + 1, 0, self.in_bs - 1)
+        self.y_m1_in = tr.zeros((self.in_n_ch, self.out_bs))
+        self.y2_in = tr.zeros((self.in_n_ch, self.out_bs))
+        self.c1_in = tr.zeros((self.in_n_ch, self.out_bs))
+        self.c2_in = tr.zeros((self.in_n_ch, self.out_bs))
+        self.c3_in = tr.zeros((self.in_n_ch, self.out_bs))
+
+        self.y_m1_idx_out = tr.clip(self.y0_idx_out - 1, 0, self.out_bs - 1)
+        self.y2_idx_out = tr.clip(self.y1_idx_out + 1, 0, self.out_bs - 1)
+        self.y_m1_out = tr.zeros((self.out_n_ch, self.in_bs))
+        self.y2_out = tr.zeros((self.out_n_ch, self.in_bs))
+        self.c1_out = tr.zeros((self.out_n_ch, self.in_bs))
+        self.c2_out = tr.zeros((self.out_n_ch, self.in_bs))
+        self.c3_out = tr.zeros((self.out_n_ch, self.in_bs))
+
+    def _process_4p_hermite(
+        self,
+        y: Tensor,
+        n_ch: int,
+        in_bs: int,
+        x: Tensor,
+        y_m1_idx: Tensor,
+        y0_idx: Tensor,
+        y1_idx: Tensor,
+        y2_idx: Tensor,
+        y_m1: Tensor,
+        y0: Tensor,
+        y1: Tensor,
+        y2: Tensor,
+        c1: Tensor,
+        c2: Tensor,
+        c3: Tensor,
+    ) -> Tensor:
+        if self.use_debug_mode:
+            assert y.shape == (n_ch, in_bs)
+        if not self.is_resampling():
+            return y
+        tr.index_select(y, dim=1, index=y_m1_idx, out=y_m1)
+        tr.index_select(y, dim=1, index=y0_idx, out=y0)
+        tr.index_select(y, dim=1, index=y1_idx, out=y1)
+        tr.index_select(y, dim=1, index=y2_idx, out=y2)
+        # Calc c2 using c1 and c3 as temporary storage
+        # y[-1] - 5/2.0*y[0] + 2*y[1] - 1/2.0*y[2]
+        tr.mul(2.5, y0, out=c2)
+        tr.sub(y_m1, c2, out=c2)
+        tr.mul(2, y1, out=c1)
+        tr.add(c2, c1, out=c2)
+        tr.mul(0.5, y2, out=c3)
+        tr.sub(c2, c3, out=c2)
+        # Calc c3 using c1 as temporary storage
+        # 1/2.0*(y[2]-y[-1]) + 3/2.0*(y[0]-y[1])
+        tr.sub(y2, y_m1, out=c3)
+        tr.mul(0.5, c3, out=c3)
+        tr.sub(y0, y1, out=c1)
+        tr.mul(1.5, c1, out=c1)
+        tr.add(c3, c1, out=c3)
+        # Calc c1
+        # 1/2.0*(y[1]-y[-1]);
+        tr.sub(y1, y_m1, out=c1)
+        tr.mul(0.5, c1, out=c1)
+        c0 = y0
+        # Calc interpolated y using y0 as storage
+        # ((c3*x+c2)*x+c1)*x+c0
+        tr.mul(c3, x, out=y0)
+        tr.add(y0, c2, out=y0)
+        tr.mul(y0, x, out=y0)
+        tr.add(y0, c1, out=y0)
+        tr.mul(y0, x, out=y0)
+        tr.add(y0, c0, out=y0)
+        return y0
+    
+    def process_in(self, y: Tensor) -> Tensor:
+        return self._process_4p_hermite(
+            y,
+            self.in_n_ch,
+            self.in_bs,
+            self.x_in,
+            self.y_m1_idx_in,
+            self.y0_idx_in,
+            self.y1_idx_in,
+            self.y2_idx_in,
+            self.y_m1_in,
+            self.y0_in,
+            self.y1_in,
+            self.y2_in,
+            self.c1_in,
+            self.c2_in,
+            self.c3_in,
+        )
+
+    def process_out(self, y: Tensor) -> Tensor:
+        return self._process_4p_hermite(
+            y,
+            self.out_n_ch,
+            self.out_bs,
+            self.x_out,
+            self.y_m1_idx_out,
+            self.y0_idx_out,
+            self.y1_idx_out,
+            self.y2_idx_out,
+            self.y_m1_out,
+            self.y0_out,
+            self.y1_out,
+            self.y2_out,
+            self.c1_out,
+            self.c2_out,
+            self.c3_out,
+        )
+    

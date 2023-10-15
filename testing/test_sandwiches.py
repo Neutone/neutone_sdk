@@ -6,7 +6,7 @@ import torch as tr
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from neutone_sdk.sandwich import InterpolationResampler, InplaceInterpolationResampler
+from neutone_sdk.sandwich import InterpolationResampler, InplaceLinearResampler
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def test_interpolation_resamplers(in_n_ch: int = 2, out_n_ch: int = 2) -> None:
     trials = 1000
 
     resampler = InterpolationResampler(48000, 48000, 512)
-    inplace_resampler = InplaceInterpolationResampler(
+    inplace_resampler = InplaceLinearResampler(
         in_n_ch, out_n_ch, 48000, 48000, 512
     )
 

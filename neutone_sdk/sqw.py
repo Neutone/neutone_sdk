@@ -11,7 +11,8 @@ from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
 from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.sandwich import (
     ChannelNormalizerSandwich,
-    InplaceInterpolationResampler,
+    InplaceLinearResampler,
+    Inplace4pHermiteResampler,
 )
 
 logging.basicConfig()
@@ -46,7 +47,7 @@ class SampleQueueWrapper(nn.Module):
             use_debug_mode=use_debug_mode
         )
         # TODO(cm): switch to a more robust resampling method that prevents aliasing
-        self.resample_sandwich = InplaceInterpolationResampler(
+        self.resample_sandwich = Inplace4pHermiteResampler(
             self.in_n_ch,
             self.out_n_ch,
             daw_sr,
@@ -54,7 +55,7 @@ class SampleQueueWrapper(nn.Module):
             daw_bs,
             use_debug_mode=use_debug_mode,
         )
-        self.params_resample_sandwich = InplaceInterpolationResampler(
+        self.params_resample_sandwich = InplaceLinearResampler(
             self.w2w_base.MAX_N_PARAMS,
             self.w2w_base.MAX_N_PARAMS,
             daw_sr,

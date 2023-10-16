@@ -75,7 +75,8 @@ class ResampleSandwich(ABC, nn.Module):
 
     def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
         """
-        Set the sampling rates of the sandwich. This should be called every time in_sr, out_sr, or in_bs changes.
+        Set the sampling rates of the sandwich. This should be called every time in_sr,
+        out_sr, or in_bs changes.
         """
         self.in_sr = in_sr
         self.out_sr = out_sr
@@ -170,7 +171,8 @@ class PTResampler(ResampleSandwich):
 
 class LinearResampler(ResampleSandwich):
     """
-    Interpolation-based resampling using the default PyTorch linear interpolation implementation.
+    Interpolation-based resampling using the default PyTorch linear interpolation
+    implementation.
     Dynamically allocates memory.
     """
 
@@ -194,7 +196,8 @@ class LinearResampler(ResampleSandwich):
 class InplaceLinearResampler(ResampleSandwich):
     """
     Interpolation-based resampling using a custom implementation.
-    Does not dynamically allocate memory and is ~40% faster than the PyTorch implementation for common sampling rates.
+    Does not dynamically allocate memory and is ~40% faster than the PyTorch
+    implementation for common sampling rates.
     """
 
     def __init__(
@@ -225,6 +228,10 @@ class InplaceLinearResampler(ResampleSandwich):
         super().__init__(in_sr, out_sr, in_bs, use_debug_mode)
 
     def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
+        """
+        Sets the sampling rates of the resampler. This should be called every time
+        in_sr, out_sr, or in_bs changes. Allocates all memory used by the resampler.
+        """
         # Repeated code due to TorchScript limitations
         self.in_sr = in_sr
         self.out_sr = out_sr
@@ -293,6 +300,10 @@ class InplaceLinearResampler(ResampleSandwich):
 
     @staticmethod
     def calc_x_and_indices(in_bs: int, out_bs: int) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Calculates x values and y0 and y1 index locations for interpolating between the
+        given input and output buffer sizes.
+        """
         # Prevents floating point errors
         scaling_factor = (in_bs - 1) / (out_bs - 1) + 1e-12
         x = tr.arange(0, out_bs) * scaling_factor
@@ -309,12 +320,15 @@ class InplaceLinearResampler(ResampleSandwich):
 class Inplace4pHermiteResampler(InplaceLinearResampler):
     """
     4-point cubic hermite spline interpolation.
-    Implementation taken from "Polynomial Interpolators for High-Quality Resampling of Oversampled Audio"
-    by Olli Niemitalo (http://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf).
-    Does not dynamically allocate memory and is only ~2x slower than the InplaceLinearResampler. For comparison,
-    sinc interpolation is ~4.5x slower and requires dynamic memory allocations.
-    The 2nd, -2nd, and sometimes -1st samples will be slightly off since this interpolator requires 4 points, but we
-    assume a repeated sample when these are not available at the ends rather than adding 2-samples of delay.
+    Implementation taken from "Polynomial Interpolators for High-Quality Resampling of
+    Oversampled Audio" by Olli Niemitalo
+    (http://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf).
+    Does not dynamically allocate memory and is only ~2x slower than the
+    InplaceLinearResampler. For comparison, sinc interpolation is ~4.5x slower and
+    requires dynamic memory allocations.
+    The 2nd, -2nd, and sometimes -1st samples will be slightly off since this
+    interpolator requires 4 points, but we assume a repeated sample when these are not
+    available at the ends rather than adding 2-samples of delay.
     """
 
     def __init__(
@@ -350,6 +364,10 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         super().__init__(in_n_ch, out_n_ch, in_sr, out_sr, in_bs, use_debug_mode)
 
     def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
+        """
+        Sets the sampling rates of the resampler. This should be called every time
+        in_sr, out_sr, or in_bs changes. Allocates all memory used by the resampler.
+        """
         # Repeated code due to TorchScript limitations
         self.in_sr = in_sr
         self.out_sr = out_sr

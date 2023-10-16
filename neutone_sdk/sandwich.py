@@ -302,6 +302,15 @@ class InplaceLinearResampler(ResampleSandwich):
 
 
 class Inplace4pHermiteResampler(InplaceLinearResampler):
+    """
+    4-point cubic hermite spline interpolation.
+    Implementation taken from "Polynomial Interpolators for High-Quality Resampling of Oversampled Audio"
+    by Olli Niemitalo (http://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf).
+    Does not dynamically allocate memory and is only ~2x slower than the InplaceLinearResampler. For comparison,
+    sinc interpolation is ~4.5x slower and requires dynamic memory allocations.
+    The 2nd, -2nd, and sometimes -1st samples will be slightly off since this interpolator requires 4 points, but we
+    assume a repeated sample when these are not available at the ends rather than adding 2-samples of delay.
+    """
     def __init__(
             self,
             in_n_ch: int,
@@ -412,15 +421,15 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         tr.sub(y1, y_m1, out=c1)
         tr.mul(self.const_0p5, c1, out=c1)
         c0 = y0
-        # Calc interpolated y using y0 as storage
+        # Calc interpolated y using y1 as storage
         # ((c3*x+c2)*x+c1)*x+c0
-        tr.mul(c3, x, out=y0)
-        tr.add(y0, c2, out=y0)
-        tr.mul(y0, x, out=y0)
-        tr.add(y0, c1, out=y0)
-        tr.mul(y0, x, out=y0)
-        tr.add(y0, c0, out=y0)
-        return y0
+        tr.mul(c3, x, out=y1)
+        tr.add(y1, c2, out=y1)
+        tr.mul(y1, x, out=y1)
+        tr.add(y1, c1, out=y1)
+        tr.mul(y1, x, out=y1)
+        tr.add(y1, c0, out=y1)
+        return y1
     
     def process_in(self, y: Tensor) -> Tensor:
         return self._process_4p_hermite(

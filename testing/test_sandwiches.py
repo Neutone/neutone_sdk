@@ -7,23 +7,27 @@ import torch as tr
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from neutone_sdk.sandwich import LinearResampler, InplaceLinearResampler, Inplace4pHermiteResampler
+from neutone_sdk.sandwich import (
+    LinearResampler,
+    InplaceLinearResampler,
+    Inplace4pHermiteResampler,
+)
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
-def test_linear_resamplers(n_trials: int = 1000, in_n_ch: int = 2, out_n_ch: int = 2) -> None:
+def test_linear_resamplers(
+    n_trials: int = 1000, in_n_ch: int = 2, out_n_ch: int = 2
+) -> None:
     random.seed(42)
     tr.manual_seed(42)
     sampling_rates = [16000, 22050, 32000, 44100, 48000, 88200, 96000]
     buffer_sizes = [64, 128, 256, 512, 1024, 2048]
 
     resampler = LinearResampler(48000, 48000, 512)
-    inplace_resampler = InplaceLinearResampler(
-        in_n_ch, out_n_ch, 48000, 48000, 512
-    )
+    inplace_resampler = InplaceLinearResampler(in_n_ch, out_n_ch, 48000, 48000, 512)
 
     for _ in tqdm(range(n_trials)):
         sr_a = random.choice(sampling_rates)
@@ -44,13 +48,19 @@ def test_linear_resamplers(n_trials: int = 1000, in_n_ch: int = 2, out_n_ch: int
 
         # PyTorch interpolation does not match the ends exactly, hence two asserts
         assert tr.allclose(in_linear[:, 1:-1], in_linear_inplace[:, 1:-1], atol=1e-6)
-        assert tr.allclose(in_linear[:, [0, -1]], in_linear_inplace[:, [0, -1]], atol=1e-3)
+        assert tr.allclose(
+            in_linear[:, [0, -1]], in_linear_inplace[:, [0, -1]], atol=1e-3
+        )
         in_interpolated = F.interpolate(
             in_audio.unsqueeze(0), out_bs, mode="linear", align_corners=True
         ).squeeze(0)
         # PyTorch interpolation does not match the ends exactly, hence two asserts
-        assert tr.allclose(in_linear_inplace[:, 1:-1], in_interpolated[:, 1:-1], atol=1e-6)
-        assert tr.allclose(in_linear_inplace[:, [0, -1]], in_interpolated[:, [0, -1]], atol=1e-3)
+        assert tr.allclose(
+            in_linear_inplace[:, 1:-1], in_interpolated[:, 1:-1], atol=1e-6
+        )
+        assert tr.allclose(
+            in_linear_inplace[:, [0, -1]], in_interpolated[:, [0, -1]], atol=1e-3
+        )
         # Check that the ends match exactly
         assert tr.equal(in_linear_inplace[:, [0, -1]], in_audio[:, [0, -1]])
 
@@ -62,13 +72,19 @@ def test_linear_resamplers(n_trials: int = 1000, in_n_ch: int = 2, out_n_ch: int
 
         # PyTorch interpolation does not match the ends exactly, hence two asserts
         assert tr.allclose(out_linear[:, 1:-1], out_linear_inplace[:, 1:-1], atol=1e-6)
-        assert tr.allclose(out_linear[:, [0, -1]], out_linear_inplace[:, [0, -1]], atol=1e-3)
+        assert tr.allclose(
+            out_linear[:, [0, -1]], out_linear_inplace[:, [0, -1]], atol=1e-3
+        )
         out_interpolated = F.interpolate(
             out_audio.unsqueeze(0), in_bs, mode="linear", align_corners=True
         ).squeeze(0)
         # PyTorch interpolation does not match the ends exactly, hence two asserts
-        assert tr.allclose(out_linear_inplace[:, 1:-1], out_interpolated[:, 1:-1], atol=1e-6)
-        assert tr.allclose(out_linear_inplace[:, [0, -1]], out_interpolated[:, [0, -1]], atol=1e-3)
+        assert tr.allclose(
+            out_linear_inplace[:, 1:-1], out_interpolated[:, 1:-1], atol=1e-6
+        )
+        assert tr.allclose(
+            out_linear_inplace[:, [0, -1]], out_interpolated[:, [0, -1]], atol=1e-3
+        )
         # Check that the ends match exactly
         assert tr.equal(out_linear_inplace[:, [0, -1]], out_audio[:, [0, -1]])
 
@@ -82,7 +98,9 @@ def _calc_4p_hermite(x: float, y_m1: float, y0: float, y1: float, y2: float) -> 
     return ((c3 * x + c2) * x + c1) * x + c0
 
 
-def test_4p_hermite_resampler(n_trials: int = 50, in_n_ch: int = 2, out_n_ch: int = 2) -> None:
+def test_4p_hermite_resampler(
+    n_trials: int = 50, in_n_ch: int = 2, out_n_ch: int = 2
+) -> None:
     random.seed(42)
     tr.manual_seed(42)
     sampling_rates = [16000, 22050, 32000, 44100, 48000, 88200, 96000]
@@ -120,11 +138,13 @@ def test_4p_hermite_resampler(n_trials: int = 50, in_n_ch: int = 2, out_n_ch: in
 
         for ch_idx in range(in_n_ch):
             for x_idx in range(out_bs):
-                y_calc = _calc_4p_hermite(x[x_idx],
-                                          y_m1[ch_idx, x_idx],
-                                          y0[ch_idx, x_idx],
-                                          y1[ch_idx, x_idx],
-                                          y2[ch_idx, x_idx])
+                y_calc = _calc_4p_hermite(
+                    x[x_idx],
+                    y_m1[ch_idx, x_idx],
+                    y0[ch_idx, x_idx],
+                    y1[ch_idx, x_idx],
+                    y2[ch_idx, x_idx],
+                )
                 assert math.isclose(y_calc, in_resampled[ch_idx, x_idx], abs_tol=1e-6)
 
         # TODO(cm): remove duplication
@@ -146,9 +166,11 @@ def test_4p_hermite_resampler(n_trials: int = 50, in_n_ch: int = 2, out_n_ch: in
 
         for ch_idx in range(out_n_ch):
             for x_idx in range(in_bs):
-                y_calc = _calc_4p_hermite(x[x_idx],
-                                          y_m1[ch_idx, x_idx],
-                                          y0[ch_idx, x_idx],
-                                          y1[ch_idx, x_idx],
-                                          y2[ch_idx, x_idx])
+                y_calc = _calc_4p_hermite(
+                    x[x_idx],
+                    y_m1[ch_idx, x_idx],
+                    y0[ch_idx, x_idx],
+                    y1[ch_idx, x_idx],
+                    y2[ch_idx, x_idx],
+                )
                 assert math.isclose(y_calc, out_resampled[ch_idx, x_idx], abs_tol=1e-6)

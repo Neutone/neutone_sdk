@@ -233,10 +233,14 @@ class InplaceLinearResampler(ResampleSandwich):
         if self.use_debug_mode:
             assert self.out_bs >= 2
 
-        self.x_in, self.y0_idx_in, self.y1_idx_in = self.calc_x_and_indices(self.in_bs, self.out_bs)
+        self.x_in, self.y0_idx_in, self.y1_idx_in = self.calc_x_and_indices(
+            self.in_bs, self.out_bs
+        )
         self.y0_in = tr.zeros((self.in_n_ch, self.out_bs))
         self.y1_in = tr.zeros((self.in_n_ch, self.out_bs))
-        self.x_out, self.y0_idx_out, self.y1_idx_out = self.calc_x_and_indices(self.out_bs, self.in_bs)
+        self.x_out, self.y0_idx_out, self.y1_idx_out = self.calc_x_and_indices(
+            self.out_bs, self.in_bs
+        )
         self.y0_out = tr.zeros((self.out_n_ch, self.in_bs))
         self.y1_out = tr.zeros((self.out_n_ch, self.in_bs))
 
@@ -289,7 +293,8 @@ class InplaceLinearResampler(ResampleSandwich):
 
     @staticmethod
     def calc_x_and_indices(in_bs: int, out_bs: int) -> Tuple[Tensor, Tensor, Tensor]:
-        scaling_factor = (in_bs - 1) / (out_bs - 1) + 1e-12  # Prevents floating point errors
+        # Prevents floating point errors
+        scaling_factor = (in_bs - 1) / (out_bs - 1) + 1e-12
         x = tr.arange(0, out_bs) * scaling_factor
         y0_idx = tr.floor(x).to(tr.long)
         y1_idx = y0_idx + 1
@@ -311,14 +316,15 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
     The 2nd, -2nd, and sometimes -1st samples will be slightly off since this interpolator requires 4 points, but we
     assume a repeated sample when these are not available at the ends rather than adding 2-samples of delay.
     """
+
     def __init__(
-            self,
-            in_n_ch: int,
-            out_n_ch: int,
-            in_sr: int,
-            out_sr: int,
-            in_bs: int,
-            use_debug_mode: bool = True,
+        self,
+        in_n_ch: int,
+        out_n_ch: int,
+        in_sr: int,
+        out_sr: int,
+        in_bs: int,
+        use_debug_mode: bool = True,
     ) -> None:
         # Buffers required for process_in
         self.y_m1_idx_in = None
@@ -352,10 +358,14 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         if self.use_debug_mode:
             assert self.out_bs > 4
 
-        self.x_in, self.y0_idx_in, self.y1_idx_in = self.calc_x_and_indices(self.in_bs, self.out_bs)
+        self.x_in, self.y0_idx_in, self.y1_idx_in = self.calc_x_and_indices(
+            self.in_bs, self.out_bs
+        )
         self.y0_in = tr.zeros((self.in_n_ch, self.out_bs))
         self.y1_in = tr.zeros((self.in_n_ch, self.out_bs))
-        self.x_out, self.y0_idx_out, self.y1_idx_out = self.calc_x_and_indices(self.out_bs, self.in_bs)
+        self.x_out, self.y0_idx_out, self.y1_idx_out = self.calc_x_and_indices(
+            self.out_bs, self.in_bs
+        )
         self.y0_out = tr.zeros((self.out_n_ch, self.in_bs))
         self.y1_out = tr.zeros((self.out_n_ch, self.in_bs))
 
@@ -430,7 +440,7 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         tr.mul(y1, x, out=y1)
         tr.add(y1, c0, out=y1)
         return y1
-    
+
     def process_in(self, y: Tensor) -> Tensor:
         return self._process_4p_hermite(
             y,
@@ -468,4 +478,3 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
             self.c2_out,
             self.c3_out,
         )
-    

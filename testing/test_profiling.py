@@ -92,7 +92,7 @@ class ProfilingModelWrapper(WaveformToWaveformBase):
     def do_forward_pass(self, x: Tensor, params: Dict[str, Tensor]) -> Tensor:
         min_val, max_val, gain = params["min"], params["max"], params["gain"]
         x = self.model.forward(x, min_val, max_val, gain)
-        x = x[:, self.get_look_behind_samples() :]
+        x = x[:, self.get_look_behind_samples():]
         return x
 
 
@@ -105,8 +105,8 @@ if __name__ == "__main__":
 
 
 # profile_sqw(sqw, daw_sr=44100, n_iters=1000, convert_to_torchscript=False)
-#   None: 0.82
-# Linear: 1.32
-#     PT: 3.04
-# Julius: 3.00
-# Hermit: 2.08
+#       None: 0.82
+#     Linear: 1.32
+#         PT: 3.04
+#     Julius: 3.00
+# 4p Hermite: 1.82

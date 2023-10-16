@@ -47,6 +47,7 @@ class SampleQueueWrapper(nn.Module):
             use_debug_mode=use_debug_mode
         )
         # TODO(cm): switch to a more robust resampling method that prevents aliasing
+        # self.resample_sandwich = InplaceLinearResampler(
         self.resample_sandwich = Inplace4pHermiteResampler(
             self.in_n_ch,
             self.out_n_ch,

@@ -168,7 +168,7 @@ class PTResampler(ResampleSandwich):
         return x
 
 
-class InterpolationResampler(ResampleSandwich):
+class LinearResampler(ResampleSandwich):
     """
     Interpolation-based resampling using the default PyTorch linear interpolation implementation.
     Dynamically allocates memory.
@@ -240,7 +240,7 @@ class InplaceLinearResampler(ResampleSandwich):
         self.y0_out = tr.zeros((self.out_n_ch, self.in_bs))
         self.y1_out = tr.zeros((self.out_n_ch, self.in_bs))
 
-    def _process(
+    def _process_2p_linear(
         self,
         y: Tensor,
         n_ch: int,
@@ -264,7 +264,7 @@ class InplaceLinearResampler(ResampleSandwich):
         return y0
 
     def process_in(self, y: Tensor) -> Tensor:
-        return self._process(
+        return self._process_2p_linear(
             y,
             self.in_n_ch,
             self.in_bs,
@@ -276,7 +276,7 @@ class InplaceLinearResampler(ResampleSandwich):
         )
 
     def process_out(self, y: Tensor) -> Tensor:
-        return self._process(
+        return self._process_2p_linear(
             y,
             self.out_n_ch,
             self.out_bs,
@@ -289,13 +289,15 @@ class InplaceLinearResampler(ResampleSandwich):
 
     @staticmethod
     def calc_x_and_indices(in_bs: int, out_bs: int) -> Tuple[Tensor, Tensor, Tensor]:
-        scaling_factor = (in_bs - 1) / (out_bs - 1)
+        scaling_factor = (in_bs - 1) / (out_bs - 1) + 1e-12  # Prevents floating point errors
         x = tr.arange(0, out_bs) * scaling_factor
         y0_idx = tr.floor(x).to(tr.long)
-        y0_idx = tr.clip(y0_idx, 0, in_bs - 1)  # Prevents floating point errors
-        y1_idx = tr.ceil(x).to(tr.long)
-        y1_idx = tr.clip(y1_idx, 0, in_bs - 1)  # Prevents floating point errors
+        y1_idx = y0_idx + 1
+        y1_idx = tr.clip(y1_idx, 0, in_bs - 1)  # Prevent overflow
         x = tr.clip(x - y0_idx, 0.0, 1.0)  # Prevents floating point errors
+        # This ensures corners match exactly
+        x[0] = 0.0
+        x[-1] = tr.round(x[-1])
         return x, y0_idx, y1_idx
 
 
@@ -325,6 +327,11 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         self.c1_out = None
         self.c2_out = None
         self.c3_out = None
+        # Constants
+        self.const_0p5 = tr.tensor(0.5)
+        self.const_1p5 = tr.tensor(1.5)
+        self.const_2p0 = tr.tensor(2.0)
+        self.const_2p5 = tr.tensor(2.5)
         super().__init__(in_n_ch, out_n_ch, in_sr, out_sr, in_bs, use_debug_mode)
 
     def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
@@ -387,23 +394,23 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         tr.index_select(y, dim=1, index=y2_idx, out=y2)
         # Calc c2 using c1 and c3 as temporary storage
         # y[-1] - 5/2.0*y[0] + 2*y[1] - 1/2.0*y[2]
-        tr.mul(2.5, y0, out=c2)
+        tr.mul(self.const_2p5, y0, out=c2)
         tr.sub(y_m1, c2, out=c2)
-        tr.mul(2, y1, out=c1)
+        tr.mul(self.const_2p0, y1, out=c1)
         tr.add(c2, c1, out=c2)
-        tr.mul(0.5, y2, out=c3)
+        tr.mul(self.const_0p5, y2, out=c3)
         tr.sub(c2, c3, out=c2)
         # Calc c3 using c1 as temporary storage
         # 1/2.0*(y[2]-y[-1]) + 3/2.0*(y[0]-y[1])
         tr.sub(y2, y_m1, out=c3)
-        tr.mul(0.5, c3, out=c3)
+        tr.mul(self.const_0p5, c3, out=c3)
         tr.sub(y0, y1, out=c1)
-        tr.mul(1.5, c1, out=c1)
+        tr.mul(self.const_1p5, c1, out=c1)
         tr.add(c3, c1, out=c3)
         # Calc c1
         # 1/2.0*(y[1]-y[-1]);
         tr.sub(y1, y_m1, out=c1)
-        tr.mul(0.5, c1, out=c1)
+        tr.mul(self.const_0p5, c1, out=c1)
         c0 = y0
         # Calc interpolated y using y0 as storage
         # ((c3*x+c2)*x+c1)*x+c0

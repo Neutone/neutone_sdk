@@ -323,7 +323,7 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
     Implementation taken from "Polynomial Interpolators for High-Quality Resampling of
     Oversampled Audio" by Olli Niemitalo
     (http://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf).
-    Does not dynamically allocate memory and is only ~2x slower than the
+    Does not dynamically allocate memory and is only ~1.8x slower than the
     InplaceLinearResampler. For comparison, sinc interpolation is ~4.5x slower and
     requires dynamic memory allocations.
     The 2nd, -2nd, and sometimes -1st samples will be slightly off since this
@@ -361,6 +361,7 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         self.const_1p5 = tr.tensor(1.5)
         self.const_2p0 = tr.tensor(2.0)
         self.const_2p5 = tr.tensor(2.5)
+        self.const_3p0 = tr.tensor(3.0)
         super().__init__(in_n_ch, out_n_ch, in_sr, out_sr, in_bs, use_debug_mode)
 
     def set_sample_rates(self, in_sr: int, out_sr: int, in_bs: int) -> None:
@@ -459,8 +460,67 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         tr.add(y1, c0, out=y1)
         return y1
 
+    def _process_4p_hermite_opt(
+            self,
+            y: Tensor,
+            n_ch: int,
+            in_bs: int,
+            x: Tensor,
+            y_m1_idx: Tensor,
+            y0_idx: Tensor,
+            y1_idx: Tensor,
+            y2_idx: Tensor,
+            y_m1: Tensor,
+            y0: Tensor,
+            y1: Tensor,
+            y2: Tensor,
+            c1: Tensor,
+            c2: Tensor,
+            c3: Tensor,
+    ) -> Tensor:
+        """
+        Optimized version of _process_4p_hermite that uses 9 add/sub (instead of 10) and
+        6 multiplications (instead of 9).
+        Found on stack overflow: https://stackoverflow.com/a/72122178
+        """
+        if self.use_debug_mode:
+            assert y.shape == (n_ch, in_bs)
+        if not self.is_resampling():
+            return y
+        tr.index_select(y, dim=1, index=y_m1_idx, out=y_m1)
+        tr.index_select(y, dim=1, index=y0_idx, out=y0)
+        tr.index_select(y, dim=1, index=y1_idx, out=y1)
+        tr.index_select(y, dim=1, index=y2_idx, out=y2)
+        # Calc diff using c2 as storage
+        # diff = y[0] - y[1]
+        tr.sub(y0, y1, out=c2)
+        # Calc c1
+        # c1 = y[1] - y[-1]
+        tr.sub(y1, y_m1, out=c1)
+        # Calc c3
+        # c3 = y[2] - y[-1] + 3 * diff;
+        tr.mul(self.const_3p0, c2, out=c3)
+        tr.add(c3, y2, out=c3)
+        tr.sub(c3, y_m1, out=c3)
+        # Calc c2
+        # c2 = -(2 * diff + c1 + c3)
+        tr.mul(self.const_2p0, c2, out=c2)
+        tr.add(c2, c1, out=c2)
+        tr.add(c2, c3, out=c2)
+        tr.neg(c2, out=c2)
+        # Calc interpolated y using y1 as storage
+        # 0.5 * ((c3 * x + c2) * x + c1) * x + y[0]
+        tr.mul(c3, x, out=y1)
+        tr.add(y1, c2, out=y1)
+        tr.mul(y1, x, out=y1)
+        tr.add(y1, c1, out=y1)
+        tr.mul(self.const_0p5, y1, out=y1)
+        tr.mul(y1, x, out=y1)
+        tr.add(y1, y0, out=y1)
+        return y1
+
     def process_in(self, y: Tensor) -> Tensor:
-        return self._process_4p_hermite(
+        return self._process_4p_hermite_opt(
             y,
             self.in_n_ch,
             self.in_bs,
@@ -479,7 +539,7 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         )
 
     def process_out(self, y: Tensor) -> Tensor:
-        return self._process_4p_hermite(
+        return self._process_4p_hermite_opt(
             y,
             self.out_n_ch,
             self.out_bs,

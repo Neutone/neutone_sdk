@@ -100,4 +100,4 @@ if __name__ == "__main__":
     model = ProfilingModel()
     wrapper = ProfilingModelWrapper(model)
     sqw = SampleQueueWrapper(wrapper)
-    profile_sqw(sqw)
+    profile_sqw(sqw, daw_sr=48000, n_iters=100, convert_to_torchscript=True)

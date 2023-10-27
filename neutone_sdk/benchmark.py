@@ -90,7 +90,7 @@ def benchmark_speed_(
     np.set_printoptions(precision=3)
     torch.set_num_threads(num_threads)
     torch.set_num_interop_threads(num_interop_threads)
-    with torch.inference_mode():
+    with torch.no_grad():
         m, _ = load_neutone_model(model_file)
         log.info(
             f"Running benchmark for buffer sizes {buffer_size} and sample rates {sample_rate}. Outliers will be removed from the calculation of mean and std and displayed separately if existing."
@@ -163,7 +163,7 @@ def benchmark_latency_(
     log.info(f"Native buffer sizes: {nbs[:10]}, Native sample rates: {nsr[:10]}")
     if len(nbs) > 10 or len(nsr) > 10:
         log.info(f"Showing only the first 10 values in case there are more.")
-    with torch.inference_mode():
+    with torch.no_grad():
         delays = []
         for sr, bs in itertools.product(sample_rate, buffer_size):
             m.set_daw_sample_rate_and_buffer_size(sr, bs)

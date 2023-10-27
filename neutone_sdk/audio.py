@@ -149,7 +149,7 @@ def render_audio_sample(
             or [model.MAX_N_PARAMS, input_sample.audio.size(1)] 2d tensor of parameter values for every input audio sample
     """
 
-    with tr.inference_mode():
+    with tr.no_grad():
         model.use_debug_mode = True  # Turn on debug mode to catch common mistakes when rendering sample audio
 
         preferred_sr = neutone_sdk.SampleQueueWrapper.select_best_model_sr(

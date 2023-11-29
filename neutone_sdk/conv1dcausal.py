@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from torch import Tensor
 
+
 class Conv1dCausal(nn.Module):
     """Causal 1D convolutional layer
     ensures outputs depend only on current and past inputs.

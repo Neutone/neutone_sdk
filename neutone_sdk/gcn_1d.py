@@ -13,6 +13,7 @@ logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
+
 class GatedAF(nn.Module):
     """Gated activation function
     applies a tanh activation to one half of the input
@@ -47,6 +48,7 @@ class GCN1DBlock(nn.Module):
         stride (int, optional): Stride for the convolution.
         cond_dim (int, optional): Dimensionality of the conditional input for FiLM.
     """
+
     def __init__(
         self,
         in_ch: int,
@@ -62,7 +64,7 @@ class GCN1DBlock(nn.Module):
 
         self.conv = Conv1dCausal(
             in_channels=in_ch,
-            out_channels=out_ch * 2,    # adapt for the Gated Activation Function
+            out_channels=out_ch * 2,  # adapt for the Gated Activation Function
             kernel_size=kernel_size,
             stride=stride,
             dilation=dilation,
@@ -71,7 +73,7 @@ class GCN1DBlock(nn.Module):
 
         self.film = None
         if cond_dim > 0:
-            self.film = FiLM(cond_dim=cond_dim, num_features=out_ch * 2) 
+            self.film = FiLM(cond_dim=cond_dim, num_features=out_ch * 2)
 
         self.gated_activation = GatedAF()
 
@@ -81,13 +83,15 @@ class GCN1DBlock(nn.Module):
 
     def forward(self, x: Tensor, cond: Tensor) -> Tensor:
         x_in = x
-        x = self.conv(x) # Apply causal convolution
-        if cond is not None and self.film is not None: # Apply FiLM if conditional input is given
-            x = self.film(x, cond)  
+        x = self.conv(x)  # Apply causal convolution
+        if (
+            cond is not None and self.film is not None
+        ):  # Apply FiLM if conditional input is given
+            x = self.film(x, cond)
         # Apply gated activation function
-        x = self.gated_activation(x) 
+        x = self.gated_activation(x)
         # Apply residual convolution and add to output
-        x_res = self.res(x_in) 
+        x_res = self.res(x_in)
         x = x + x_res
         return x
 
@@ -107,6 +111,7 @@ class GCN1D(nn.Module):
     Returns:
         Tensor: The output of the GCN model.
     """
+
     def __init__(
         self,
         in_ch: int = 1,
@@ -130,7 +135,7 @@ class GCN1D(nn.Module):
 
         # Compute convolution channels and dilations
         self.channels = [n_channels] * n_blocks
-        self.dilations = [dil_growth ** idx for idx in range(n_blocks)]
+        self.dilations = [dil_growth**idx for idx in range(n_blocks)]
 
         # Blocks number is given by the number of elements in the channels list
         self.n_blocks = len(self.channels)
@@ -173,12 +178,12 @@ class GCN1D(nn.Module):
         self.act = nn.Tanh()
 
     def forward(self, x: Tensor, cond: Tensor) -> Tensor:
-        assert x.ndim == 3 # (batch_size, in_ch, samples)
+        assert x.ndim == 3  # (batch_size, in_ch, samples)
         if cond is not None:
-            assert cond.ndim == 2 # (batch_size, cond_dim)
-        for block in self.blocks: # Apply GCN blocks
+            assert cond.ndim == 2  # (batch_size, cond_dim)
+        for block in self.blocks:  # Apply GCN blocks
             x = block(x, cond)
-        x = self.out_net(x) # Apply output layer
+        x = self.out_net(x)  # Apply output layer
 
         if self.act is not None:
             x = self.act(x)  # Apply tanh activation function
@@ -202,4 +207,3 @@ class GCN1D(nn.Module):
         for dil in self.dilations[1:]:
             rf = rf + ((self.kernel_size - 1) * dil)
         return rf
-

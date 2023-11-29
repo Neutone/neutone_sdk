@@ -461,22 +461,22 @@ class Inplace4pHermiteResampler(InplaceLinearResampler):
         return y1
 
     def _process_4p_hermite_opt(
-            self,
-            y: Tensor,
-            n_ch: int,
-            in_bs: int,
-            x: Tensor,
-            y_m1_idx: Tensor,
-            y0_idx: Tensor,
-            y1_idx: Tensor,
-            y2_idx: Tensor,
-            y_m1: Tensor,
-            y0: Tensor,
-            y1: Tensor,
-            y2: Tensor,
-            c1: Tensor,
-            c2: Tensor,
-            c3: Tensor,
+        self,
+        y: Tensor,
+        n_ch: int,
+        in_bs: int,
+        x: Tensor,
+        y_m1_idx: Tensor,
+        y0_idx: Tensor,
+        y1_idx: Tensor,
+        y2_idx: Tensor,
+        y_m1: Tensor,
+        y0: Tensor,
+        y1: Tensor,
+        y2: Tensor,
+        c1: Tensor,
+        c2: Tensor,
+        c3: Tensor,
     ) -> Tensor:
         """
         Optimized version of _process_4p_hermite that uses 9 add/sub (instead of 10) and

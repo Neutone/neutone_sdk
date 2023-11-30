@@ -13,7 +13,25 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class TFiLM(nn.Module):
-    def __init__(self, n_channels, cond_dim, tfilm_block_size, rnn_type="lstm") -> None:
+    """Temporal Feature-wise Linear Modulation (TFiLM) layer.
+
+    Parameters:
+        n_channels (int): Number of channels in the input signal.
+        cond_dim (int): Dimensionality of the conditional input.
+        tfilm_block_size (int): Size of the temporal blocks.
+        rnn_type (str, optional): Type of RNN to use for the modulation.
+
+    Returns:
+        Tensor: The output of the TFiLM layer.
+    """
+
+    def __init__(
+        self,
+        n_channels: int,
+        cond_dim: int,
+        tfilm_block_size: int,
+        rnn_type: str = "lstm",
+    ) -> None:
         super().__init__()
         self.nchannels = n_channels
         self.cond_dim = cond_dim
@@ -34,10 +52,7 @@ class TFiLM(nn.Module):
             ceil_mode=False,
         )
 
-        rnn_types = {
-            "lstm": torch.nn.LSTM,
-            "gru": torch.nn.GRU
-        }
+        rnn_types = {"lstm": torch.nn.LSTM, "gru": torch.nn.GRU}
 
         try:
             RNN = rnn_types[rnn_type.lower()]
@@ -51,8 +66,8 @@ class TFiLM(nn.Module):
         except KeyError:
             raise ValueError(f"Invalid rnn_type. Use 'lstm' or 'gru'. Got {rnn_type}")
 
-    def forward(self, x, cond: Optional[Tensor] = None) -> Tensor:
-        x_in_shape = x.shape    # (batch_size, n_channels, samples)
+    def forward(self, x: Tensor , cond: Optional[Tensor] = None) -> Tensor:
+        x_in_shape = x.shape  # (batch_size, n_channels, samples)
 
         # Pad input to be divisible by tfilm_block_size
         if (x_in_shape[2] % self.tfilm_block_size) != 0:
@@ -66,21 +81,19 @@ class TFiLM(nn.Module):
         x_shape = x.shape
         n_steps = int(x_shape[-1] / self.tfilm_block_size)
 
-        x_down = self.maxpool(x)    # (batch_size, n_channels, n_steps)
+        x_down = self.maxpool(x)  # (batch_size, n_channels, n_steps)
 
         if cond is not None:
             cond_up = cond.unsqueeze(-1)
-            cond_up = cond_up.repeat(
-                1, 1, n_steps
-            )   # (batch_size, cond_dim, n_steps)
+            cond_up = cond_up.repeat(1, 1, n_steps)  # (batch_size, cond_dim, n_steps)
             x_down = torch.cat(
                 (x_down, cond_up), dim=1
-            )   # (batch_size, n_channels + cond_dim, n_steps)
+            )  # (batch_size, n_channels + cond_dim, n_steps)
 
         # Put shape to (n_steps, batch_size, n_channels + cond_dim)
         x_down = x_down.permute(2, 0, 1)
 
-        # Modulation 
+        # Modulation
         if self.first_run:  # Reset hidden state
             x_norm, self.hidden_state = self.rnn(x_down, None)
             self.first_run = False
@@ -99,13 +112,13 @@ class TFiLM(nn.Module):
         x_out = x_norm * x_in
 
         # Return to the original padded input shape
-        x_out = torch.reshape(x_out, shape=(x_shape)) 
+        x_out = torch.reshape(x_out, shape=(x_shape))
 
-        x_out = x_out[..., : x_in_shape[2]] # Remove padding
+        x_out = x_out[..., : x_in_shape[2]]  # Remove padding
 
         return x_out
 
-    def reset_state(self):
+    def reset_state(self) -> None:
         self.first_run = True
 
 
@@ -228,7 +241,7 @@ class GCN1DBlock(nn.Module):
             in_channels=in_ch, out_channels=out_ch, kernel_size=(1,), bias=False
         )
 
-    def forward(self, x: Tensor, cond: Tensor) -> Tensor:
+    def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:
         x_in = x
         x = self.conv(x)  # Apply causal convolution
         if (
@@ -296,16 +309,16 @@ class GCN1D(nn.Module):
 
         # Create a list of GCN blocks
         self.blocks = nn.ModuleList()
-        block_out_ch = None
+        block_out_ch = 0
 
         for idx, (curr_out_ch, dil, stride) in enumerate(
             zip(self.channels, self.dilations, self.strides)
         ):
+            block_out_ch = curr_out_ch
             if idx == 0:
                 block_in_ch = in_ch
             else:
                 block_in_ch = block_out_ch
-            block_out_ch = curr_out_ch
 
             self.blocks.append(
                 GCN1DBlock(
@@ -329,7 +342,7 @@ class GCN1D(nn.Module):
         # Activation function
         self.act = nn.Tanh()
 
-    def forward(self, x: Tensor, cond: Tensor) -> Tensor:
+    def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:
         assert x.ndim == 3  # (batch_size, in_ch, samples)
         if cond is not None:
             assert cond.ndim == 2  # (batch_size, cond_dim)
@@ -359,5 +372,4 @@ class GCN1D(nn.Module):
         for dil in self.dilations[1:]:
             rf = rf + ((self.kernel_size - 1) * dil)
         return rf
-
 

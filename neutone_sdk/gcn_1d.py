@@ -5,13 +5,148 @@ from typing import Optional
 import torch
 from torch import Tensor
 from torch import nn
-
-from neutone_sdk.conv1dcausal import Conv1dCausal
-from neutone_sdk.tcn_1d import FiLM
+from torch.nn import functional as F
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
+
+
+class TFiLM(nn.Module):
+    def __init__(self, n_channels, cond_dim, tfilm_block_size, rnn_type="lstm"):
+        super().__init__()
+        self.nchannels = n_channels
+        self.cond_dim = cond_dim
+        self.tfilm_block_size = tfilm_block_size
+        self.num_layers = 1
+        self.first_run = True
+        self.hidden_state = (
+            torch.Tensor(0),
+            torch.Tensor(0),
+        )  # (hidden_state, cell_state)
+
+        self.maxpool = torch.nn.MaxPool1d(
+            kernel_size=tfilm_block_size,
+            stride=None,
+            padding=0,
+            dilation=1,
+            return_indices=False,
+            ceil_mode=False,
+        )
+
+        rnn_types = {
+            "lstm": torch.nn.LSTM,
+            "gru": torch.nn.GRU
+        }
+
+        try:
+            RNN = rnn_types[rnn_type.lower()]
+            self.rnn = RNN(
+                input_size=n_channels + cond_dim,
+                hidden_size=n_channels,
+                num_layers=self.num_layers,
+                batch_first=True,
+                bidirectional=False,
+            )
+        except KeyError:
+            raise ValueError(f"Invalid rnn_type. Use 'lstm' or 'gru'. Got {rnn_type}")
+
+    def forward(self, x, cond: Optional[Tensor] = None):
+        x_in_shape = x.shape
+
+        if (x_in_shape[2] % self.tfilm_block_size) != 0:
+            padding = torch.zeros(
+                x_in_shape[0],
+                x_in_shape[1],
+                self.tfilm_block_size - (x_in_shape[2] % self.tfilm_block_size),
+            )
+            x = torch.cat((x, padding), dim=-1)
+
+        x_shape = x.shape
+        n_steps = int(x_shape[-1] / self.tfilm_block_size)
+
+        x_down = self.maxpool(x)
+
+        if cond is not None:
+            cond_up = cond.unsqueeze(-1)
+            cond_up = cond_up.repeat(
+                1, 1, n_steps
+            )
+            x_down = torch.cat(
+                (x_down, cond_up), dim=1
+            )
+
+        x_down = x_down.permute(2, 0, 1)
+
+        if self.first_run:
+            x_norm, self.hidden_state = self.rnn(x_down, None)
+            self.first_run = False
+        else:
+            x_norm, self.hidden_state = self.rnn(x_down, self.hidden_state)
+
+        x_norm = x_norm.permute(1, 2, 0)
+
+        x_in = torch.reshape(
+            x, shape=(-1, self.nchannels, n_steps, self.tfilm_block_size)
+        )
+        x_norm = torch.reshape(x_norm, shape=(-1, self.nchannels, n_steps, 1))
+
+        x_out = x_norm * x_in
+
+        x_out = torch.reshape(x_out, shape=(x_shape))
+
+        x_out = x_out[..., : x_in_shape[2]]
+
+        return x_out
+
+    def reset_state(self):
+        self.first_run = True
+
+
+class Conv1dCausal(nn.Module):
+    """Causal 1D convolutional layer
+    ensures outputs depend only on current and past inputs.
+
+    Parameters:
+        in_channels (int): Number of channels in the input signal.
+        out_channels (int): Number of channels produced by the convolution.
+        kernel_size (int): Size of the convolving kernel.
+        stride (int): Stride of the convolution.
+        dilation (int, optional): Spacing between kernel elements.
+        bias (bool, optional): If True, adds a learnable bias to the output.
+
+    Returns:
+        Tensor: The output of the causal 1D convolutional layer.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        dilation: int = 1,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        self.padding = (
+            kernel_size - 1
+        ) * dilation  # input_len == output_len when stride=1
+        self.in_channels = in_channels
+        self.conv = nn.Conv1d(
+            in_channels,
+            out_channels,
+            (kernel_size,),
+            (stride,),
+            padding=0,
+            dilation=(dilation,),
+            bias=bias,
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = F.pad(x, (self.padding, 0))  # standard zero padding
+        x = self.conv(x)
+        return x
 
 
 class GatedAF(nn.Module):
@@ -57,8 +192,9 @@ class GCN1DBlock(nn.Module):
         dilation: int = 1,
         stride: int = 1,
         cond_dim: int = 0,
+        rnn_type: str = "lstm",
+        tfilm_block_size: int = 128,
         use_bias_in_conv: bool = False,
-        use_bn: bool = False,
     ) -> None:
         super().__init__()
 
@@ -71,9 +207,14 @@ class GCN1DBlock(nn.Module):
             bias=use_bias_in_conv,
         )
 
-        self.film = None
+        self.tfilm = None
         if cond_dim > 0:
-            self.film = FiLM(cond_dim=cond_dim, num_features=out_ch * 2)
+            self.tfilm = TFiLM(
+                n_channels=out_ch * 2,
+                cond_dim=cond_dim,
+                tfilm_block_size=tfilm_block_size,
+                rnn_type=rnn_type,
+            )
 
         self.gated_activation = GatedAF()
 
@@ -85,9 +226,9 @@ class GCN1DBlock(nn.Module):
         x_in = x
         x = self.conv(x)  # Apply causal convolution
         if (
-            cond is not None and self.film is not None
+            cond is not None and self.tfilm is not None
         ):  # Apply FiLM if conditional input is given
-            x = self.film(x, cond)
+            x = self.tfilm(x, cond)
         # Apply gated activation function
         x = self.gated_activation(x)
         # Apply residual convolution and add to output
@@ -97,7 +238,8 @@ class GCN1DBlock(nn.Module):
 
 
 class GCN1D(nn.Module):
-    """Gated Convolutional Network (GCN) model, often used in sequence modeling tasks.
+    """Gated Convolutional Network (GCN) model, re-implemented from the paper:
+    https://arxiv.org/abs/2211.00497
 
     Parameters:
         in_ch (int, optional): Number of input channels.
@@ -121,6 +263,8 @@ class GCN1D(nn.Module):
         dil_growth: int = 4,
         kernel_size: int = 13,
         cond_dim: int = 0,
+        tfilm_block_size: int = 128,
+        rnn_type: str = "lstm",
         use_act: bool = True,
         use_bias_in_conv: bool = False,
     ) -> None:
@@ -164,8 +308,10 @@ class GCN1D(nn.Module):
                     self.kernel_size,
                     dilation=dil,
                     stride=stride,
-                    cond_dim=self.cond_dim,
-                    use_bias_in_conv=self.use_bias_in_conv,
+                    cond_dim=cond_dim,
+                    tfilm_block_size=tfilm_block_size,
+                    rnn_type=rnn_type,
+                    use_bias_in_conv=use_bias_in_conv,
                 )
             )
 
@@ -207,3 +353,23 @@ class GCN1D(nn.Module):
         for dil in self.dilations[1:]:
             rf = rf + ((self.kernel_size - 1) * dil)
         return rf
+
+
+if __name__ == "__main__":
+
+    # Test GCN1D (only for debugging purposes)
+    from torchinfo import summary
+
+    model = GCN1D(
+        cond_dim=3,
+        rnn_type="gru",
+    )
+
+    audio = torch.randn(1, 1, 65536)
+    cond = torch.randn(1, 3)
+    summary(model, input_data=(audio, cond), depth=4)
+
+    rf = model.calc_receptive_field()
+    print(f"Receptive field: {rf} samples (or {rf/48000:0.2f} seconds at 48kHz)")
+    out = model(audio, cond)
+    print(out.shape)

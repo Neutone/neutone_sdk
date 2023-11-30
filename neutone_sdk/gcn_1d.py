@@ -52,8 +52,9 @@ class TFiLM(nn.Module):
             raise ValueError(f"Invalid rnn_type. Use 'lstm' or 'gru'. Got {rnn_type}")
 
     def forward(self, x, cond: Optional[Tensor] = None):
-        x_in_shape = x.shape
+        x_in_shape = x.shape    # (batch_size, n_channels, samples)
 
+        # Pad input to be divisible by tfilm_block_size
         if (x_in_shape[2] % self.tfilm_block_size) != 0:
             padding = torch.zeros(
                 x_in_shape[0],
@@ -65,27 +66,31 @@ class TFiLM(nn.Module):
         x_shape = x.shape
         n_steps = int(x_shape[-1] / self.tfilm_block_size)
 
-        x_down = self.maxpool(x)
+        x_down = self.maxpool(x)    # (batch_size, n_channels, n_steps)
 
         if cond is not None:
             cond_up = cond.unsqueeze(-1)
             cond_up = cond_up.repeat(
                 1, 1, n_steps
-            )
+            )   # (batch_size, cond_dim, n_steps)
             x_down = torch.cat(
                 (x_down, cond_up), dim=1
-            )
+            )   # (batch_size, n_channels + cond_dim, n_steps)
 
+        # Put shape to (n_steps, batch_size, n_channels + cond_dim)
         x_down = x_down.permute(2, 0, 1)
 
-        if self.first_run:
+        # Modulation 
+        if self.first_run:  # Reset hidden state
             x_norm, self.hidden_state = self.rnn(x_down, None)
             self.first_run = False
         else:
             x_norm, self.hidden_state = self.rnn(x_down, self.hidden_state)
 
+        # Put shape back to (batch_size, n_channels, length)
         x_norm = x_norm.permute(1, 2, 0)
 
+        # Reshape input and modulation sequence into blocks
         x_in = torch.reshape(
             x, shape=(-1, self.nchannels, n_steps, self.tfilm_block_size)
         )
@@ -93,9 +98,10 @@ class TFiLM(nn.Module):
 
         x_out = x_norm * x_in
 
-        x_out = torch.reshape(x_out, shape=(x_shape))
+        # Return to the original padded input shape
+        x_out = torch.reshape(x_out, shape=(x_shape)) 
 
-        x_out = x_out[..., : x_in_shape[2]]
+        x_out = x_out[..., : x_in_shape[2]] # Remove padding
 
         return x_out
 

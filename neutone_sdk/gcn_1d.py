@@ -13,7 +13,7 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class TFiLM(nn.Module):
-    def __init__(self, n_channels, cond_dim, tfilm_block_size, rnn_type="lstm"):
+    def __init__(self, n_channels, cond_dim, tfilm_block_size, rnn_type="lstm") -> None:
         super().__init__()
         self.nchannels = n_channels
         self.cond_dim = cond_dim
@@ -51,7 +51,7 @@ class TFiLM(nn.Module):
         except KeyError:
             raise ValueError(f"Invalid rnn_type. Use 'lstm' or 'gru'. Got {rnn_type}")
 
-    def forward(self, x, cond: Optional[Tensor] = None):
+    def forward(self, x, cond: Optional[Tensor] = None) -> Tensor:
         x_in_shape = x.shape    # (batch_size, n_channels, samples)
 
         # Pad input to be divisible by tfilm_block_size

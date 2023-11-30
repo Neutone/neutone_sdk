@@ -361,21 +361,3 @@ class GCN1D(nn.Module):
         return rf
 
 
-if __name__ == "__main__":
-
-    # Test GCN1D (only for debugging purposes)
-    from torchinfo import summary
-
-    model = GCN1D(
-        cond_dim=3,
-        rnn_type="gru",
-    )
-
-    audio = torch.randn(1, 1, 65536)
-    cond = torch.randn(1, 3)
-    summary(model, input_data=(audio, cond), depth=4)
-
-    rf = model.calc_receptive_field()
-    print(f"Receptive field: {rf} samples (or {rf/48000:0.2f} seconds at 48kHz)")
-    out = model(audio, cond)
-    print(out.shape)

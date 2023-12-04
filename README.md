@@ -52,6 +52,7 @@ If you just want to wrap a model without going through a detailed description of
     - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1yPHU6PRWw1lRWZLUxXimIa6chFQ2JdRW?usp=sharing)
     - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1qlN6xLvDYrLcAwS8yh2ecmNG_bEKlVI9?usp=sharing)
     - [NoiseBandNet Audio Reconstruction](https://colab.research.google.com/drive/1KJij2CqhLf7ac6aljMckFL71WJrCNg66?usp=sharing)
+    - [GCN FX Emulation](https://github.com/francescopapaleo/neural-audio-spring-reverb/blob/main/notebooks/neutone_GCN_demo.ipynb)
 
 
 <a name="description"/>

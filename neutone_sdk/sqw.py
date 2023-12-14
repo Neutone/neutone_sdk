@@ -3,7 +3,6 @@ import math
 import os
 from typing import Optional, List
 
-import torch
 import torch as tr  # TODO(cm): always use torch. not tr. since torchscript sometimes doesn't like compiling it
 from torch import Tensor, nn
 
@@ -252,7 +251,7 @@ class SampleQueueWrapper(nn.Module):
                 validate_waveform(model_out, self.is_output_mono())
             self.out_queue.push(model_out)
 
-    @tr.no_grad()
+    @tr.jit.export
     def forward(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
         is_daw_mono = x.size(0) == 1
         in_n = x.shape[1]
@@ -274,7 +273,6 @@ class SampleQueueWrapper(nn.Module):
         return x
 
     @tr.jit.export
-    @tr.no_grad()
     def forward_bt(
         self, x: Tensor, params: Optional[Tensor] = None
     ) -> Optional[Tensor]:
@@ -302,7 +300,6 @@ class SampleQueueWrapper(nn.Module):
         return self.bt_out_buffer[0:daw_n_ch, 0:curr_n]
 
     @tr.jit.export
-    @tr.no_grad()
     def forward_offline(self, x: Tensor, params: Optional[Tensor] = None) -> Tensor:
         self.reset()
 
@@ -315,14 +312,14 @@ class SampleQueueWrapper(nn.Module):
 
         n_samples = x.size(1)
         # Ensure we pad enough to make up for any delay
-        padding_amount = torch.ceil(torch.tensor((n_samples + delay_samples) / self.daw_bs)) * self.daw_bs - n_samples
+        padding_amount = tr.ceil(tr.tensor((n_samples + delay_samples) / self.daw_bs)) * self.daw_bs - n_samples
         padding_amount = int(padding_amount.item())
-        padded_audio = torch.nn.functional.pad(x, [0, padding_amount])
+        padded_audio = tr.nn.functional.pad(x, [0, padding_amount])
         audio_chunks = padded_audio.split(self.daw_bs, dim=1)
 
         param_chunks = []
         if params is not None:
-            padded_params = torch.nn.functional.pad(params, [0, padding_amount], mode="replicate")
+            padded_params = tr.nn.functional.pad(params, [0, padding_amount], mode="replicate")
             param_chunks = padded_params.split(self.daw_bs, dim=1)
 
         # TODO(cm): if memory is an issue, we can preallocate everything beforehand
@@ -335,7 +332,7 @@ class SampleQueueWrapper(nn.Module):
                 out = self.forward(audio_chunk, params=param_chunk).clone()
             out_chunks.append(out)
 
-        audio_out = torch.cat(out_chunks, dim=1)
+        audio_out = tr.cat(out_chunks, dim=1)
         audio_out = audio_out[:, -n_samples:]
         return audio_out
 

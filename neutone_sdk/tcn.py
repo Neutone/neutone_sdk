@@ -29,22 +29,51 @@ def causal_crop(x: Tensor, length: int) -> Tensor:
     return x
 
 
-# TODO(cm): optimize for TorchScript
 class PaddingCached(nn.Module):
-    """Cached padding for cached convolutions."""
-    def __init__(self, n_ch: int, padding: int) -> None:
+    """
+    Cached padding for cached convolutions.
+
+    Args:
+        n_ch: Number of channels.
+        padding: Number of padding samples.
+        use_dynamic_bs: If True, the padding will dynamically change batch size to match
+                        the input.
+        batch_size: If known, the initial batch size can be specified here to avoid
+                    dynamic changes.
+
+    Returns:
+        Tensor: The padded input.
+    """
+    def __init__(self,
+                 n_ch: int,
+                 padding: int,
+                 use_dynamic_bs: bool = True,
+                 batch_size: int = 1) -> None:
         super().__init__()
+        assert n_ch > 0
+        assert padding > 0
+        assert batch_size > 0
         self.n_ch = n_ch
         self.padding = padding
-        self.register_buffer("pad_buf", tr.zeros((1, n_ch, padding)))
+        self.use_dynamic_bs = use_dynamic_bs
+        self.register_buffer("pad_buf", tr.zeros((batch_size, n_ch, padding)))
+
+    def reset(self, batch_size: Optional[int] = None) -> None:
+        if batch_size is not None:
+            self.pad_buf = self.pad_buf.new_zeros((batch_size, self.n_ch, self.padding))
+        else:
+            self.pad_buf.zero_()
 
     def forward(self, x: Tensor) -> Tensor:
         assert x.ndim == 3  # (batch_size, in_ch, samples)
         bs = x.size(0)
-        if bs > self.pad_buf.size(0):  # Perform resizing once if batch size is not 1
-            self.pad_buf = self.pad_buf.repeat(bs, 1, 1)
-        x = tr.cat([self.pad_buf, x], dim=-1)  # concat input signal to the cache
-        self.pad_buf = x[..., -self.padding:]  # discard old cache
+        if self.use_dynamic_bs and bs != self.pad_buf.size(0):
+            self.reset(bs)
+        else:
+            assert bs == self.pad_buf.size(0)
+
+        x = tr.cat([self.pad_buf, x], dim=-1)  # Concat input to the cache
+        self.pad_buf = x[..., -self.padding:]  # Discard old cache
         return x
 
 

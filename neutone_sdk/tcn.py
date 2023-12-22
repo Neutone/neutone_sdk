@@ -93,8 +93,8 @@ class Conv1dGeneral(nn.Module):
                  in_channels: int,
                  out_channels: int,
                  kernel_size: int,
-                 stride: int,
-                 padding: Union[int, Tuple[int, int], str] = 0,
+                 stride: int = 1,
+                 padding: Union[int, Tuple[int, int], str] = "same",
                  dilation: int = 1,
                  bias: bool = True,
                  padding_mode: str = "zeros",
@@ -109,12 +109,15 @@ class Conv1dGeneral(nn.Module):
         self.causal = causal
         self.cached = cached
         self.debug_mode = debug_mode
-        # TODO(cm)
-        self.left_padding = 0
-        self.right_padding = 0
-        self.uncached_padding = (self.left_padding, self.right_padding)
-        if self.causal:
-            assert padding == 0, "If the convolution is causal, padding must be 0"
+
+        left_padding, right_padding = self._calc_padding(kernel_size,
+                                                         stride,
+                                                         padding,
+                                                         dilation,
+                                                         causal)
+        self.left_padding = left_padding
+        self.right_padding = right_padding
+        self.uncached_padding = (left_padding, right_padding)
 
         self.conv1d = nn.Conv1d(in_channels,
                                 out_channels,
@@ -125,10 +128,41 @@ class Conv1dGeneral(nn.Module):
                                 bias=bias,
                                 padding_mode=padding_mode)
         self.padding_cached = PaddingCached(in_channels,
-                                            self.left_padding,
+                                            left_padding,
                                             use_dynamic_bs,
                                             batch_size,
                                             debug_mode)
+
+    def _calc_padding(self,
+                      kernel_size: int,
+                      stride: int,
+                      padding: Union[int, Tuple[int, int], str],
+                      dilation: int,
+                      causal: bool) -> Tuple[int, int]:
+        if padding == "valid":
+            return 0, 0
+        elif padding == "same":
+            assert stride == 1, "If padding is 'same', stride must be 1"
+            pad_amount = (kernel_size - 1) * dilation
+            if causal:
+                return pad_amount, 0
+            elif pad_amount % 2 == 0:
+                return pad_amount // 2, pad_amount // 2
+            else:
+                # Favor left padding over right padding if the padding amount is odd
+                return pad_amount // 2 + 1, pad_amount // 2
+        elif isinstance(padding, int):
+            assert padding >= 0
+            if causal:
+                return padding, 0
+            else:
+                return padding, padding
+        else:
+            assert len(padding) == 2, "Expected padding to be a tuple of length 2."
+            assert padding[0] >= 0 and padding[1] >= 0
+            if causal:
+                assert padding[1] == 0, "If causal, right padding must be 0"
+            return padding
 
     def set_cached(self, cached: bool) -> None:
         self.cached = cached
@@ -149,8 +183,10 @@ class Conv1dGeneral(nn.Module):
         if self.cached:
             x = self.padding_cached(x)
             if self.right_padding > 0:
+                # TODO(cm): prevent dynamic memory allocations here
                 x = F.pad(x, (0, self.right_padding), mode=self.padding_mode)
         elif self.uncached_padding != (0, 0):
+            # TODO(cm): prevent dynamic memory allocations here
             x = F.pad(x, self.uncached_padding, mode=self.padding_mode)
         x = self.conv1d(x)
         return x
@@ -411,9 +447,17 @@ class TCN(nn.Module):
 
 
 if __name__ == '__main__':
-    padding = PaddingCached(1, 0)
-    padding.reset()
-    ts = tr.jit.script(padding)
+    conv = Conv1dGeneral(1,
+                         16,
+                         3)
+    conv.reset()
+    ts = tr.jit.script(conv)
+    conv.prepare_for_inference()
+    ts = tr.jit.script(conv)
+    conv.set_cached(True)
+    ts = tr.jit.script(conv)
+    conv.set_cached(False)
+    ts = tr.jit.script(conv)
     exit()
 
 

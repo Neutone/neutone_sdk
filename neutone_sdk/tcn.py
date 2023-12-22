@@ -1,6 +1,7 @@
 import logging
 import os
-from typing import Optional, List
+from typing import Optional, List, Tuple, Union
+import torch.nn.functional as F
 
 import torch as tr
 from torch import Tensor
@@ -30,32 +31,33 @@ def causal_crop(x: Tensor, length: int) -> Tensor:
 
 
 class PaddingCached(nn.Module):
-    """
-    Cached padding for cached convolutions.
-
-    Args:
-        n_ch: Number of channels.
-        padding: Number of padding samples.
-        use_dynamic_bs: If True, the padding will dynamically change batch size to match
-                        the input.
-        batch_size: If known, the initial batch size can be specified here to avoid
-                    dynamic changes.
-
-    Returns:
-        Tensor: The padded input.
-    """
     def __init__(self,
                  n_ch: int,
                  padding: int,
                  use_dynamic_bs: bool = True,
-                 batch_size: int = 1) -> None:
+                 batch_size: int = 1,
+                 debug_mode: bool = True) -> None:
+        """
+        Cached padding for cached convolutions. Handles dynamic batch sizes by default
+        at the expense of dynamic memory allocations.
+
+        Args:
+            n_ch: Number of channels.
+            padding: Number of padding samples.
+            use_dynamic_bs: If True, the padding will dynamically change batch size to
+                            match the input.
+            batch_size: If known, the initial batch size can be specified here to avoid
+                        dynamic changes.
+            debug_mode: If True, assert statements are enabled.
+        """
         super().__init__()
-        assert n_ch > 0
-        assert padding > 0
-        assert batch_size > 0
+        if debug_mode:
+            assert n_ch > 0
+            assert batch_size > 0
         self.n_ch = n_ch
         self.padding = padding
         self.use_dynamic_bs = use_dynamic_bs
+        self.debug_mode = debug_mode
         self.register_buffer("pad_buf", tr.zeros((batch_size, n_ch, padding)))
 
     def reset(self, batch_size: Optional[int] = None) -> None:
@@ -64,12 +66,21 @@ class PaddingCached(nn.Module):
         else:
             self.pad_buf.zero_()
 
+    def prepare_for_inference(self) -> None:
+        self.debug_mode = False
+        self.reset()
+
     def forward(self, x: Tensor) -> Tensor:
-        assert x.ndim == 3  # (batch_size, in_ch, samples)
+        if self.debug_mode:
+            assert x.ndim == 3  # (batch_size, in_ch, samples)
+        # We support padding == 0 for convolutions with kernel size of 1
+        if self.padding == 0:
+            return x
+
         bs = x.size(0)
         if self.use_dynamic_bs and bs != self.pad_buf.size(0):
             self.reset(bs)
-        else:
+        elif self.debug_mode:
             assert bs == self.pad_buf.size(0)
 
         x = tr.cat([self.pad_buf, x], dim=-1)  # Concat input to the cache
@@ -77,7 +88,75 @@ class PaddingCached(nn.Module):
         return x
 
 
-class Conv1dCached(nn.Module):  # Conv1d with cache
+class Conv1dGeneral(nn.Module):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 kernel_size: int,
+                 stride: int,
+                 padding: Union[int, Tuple[int, int], str] = 0,
+                 dilation: int = 1,
+                 bias: bool = True,
+                 padding_mode: str = "zeros",
+                 causal: bool = True,
+                 cached: bool = False,
+                 use_dynamic_bs: bool = True,
+                 batch_size: int = 1,
+                 debug_mode: bool = True) -> None:
+        super().__init__()
+        self.in_channels = in_channels
+        self.padding_mode = padding_mode
+        self.causal = causal
+        self.cached = cached
+        self.debug_mode = debug_mode
+        # TODO(cm)
+        self.left_padding = 0
+        self.right_padding = 0
+        self.uncached_padding = (self.left_padding, self.right_padding)
+        if self.causal:
+            assert padding == 0, "If the convolution is causal, padding must be 0"
+
+        self.conv1d = nn.Conv1d(in_channels,
+                                out_channels,
+                                kernel_size=(kernel_size,),
+                                stride=(stride,),
+                                padding=0,
+                                dilation=(dilation,),
+                                bias=bias,
+                                padding_mode=padding_mode)
+        self.padding_cached = PaddingCached(in_channels,
+                                            self.left_padding,
+                                            use_dynamic_bs,
+                                            batch_size,
+                                            debug_mode)
+
+    def set_cached(self, cached: bool) -> None:
+        self.cached = cached
+        self.reset()
+
+    def reset(self, batch_size: Optional[int] = None) -> None:
+        self.padding_cached.reset(batch_size)
+
+    def prepare_for_inference(self) -> None:
+        self.debug_mode = False
+        self.conv1d.eval()
+        self.padding_cached.prepare_for_inference()
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.debug_mode:
+            assert x.ndim == 3  # (batch_size, in_ch, samples)
+            assert x.size(1) == self.in_channels
+        if self.cached:
+            x = self.padding_cached(x)
+            if self.right_padding > 0:
+                x = F.pad(x, (0, self.right_padding), mode=self.padding_mode)
+        elif self.uncached_padding != (0, 0):
+            x = F.pad(x, self.uncached_padding, mode=self.padding_mode)
+        x = self.conv1d(x)
+        return x
+
+
+class Conv1dCached(nn.Module):
     """Cached causal convolution for streaming."""
     def __init__(self,
                  in_channels: int,
@@ -332,6 +411,12 @@ class TCN(nn.Module):
 
 
 if __name__ == '__main__':
+    padding = PaddingCached(1, 0)
+    padding.reset()
+    ts = tr.jit.script(padding)
+    exit()
+
+
     out_channels = [8] * 4
     tcn = TCN(out_channels, cond_dim=3, padding=0, is_causal=True, is_cached=True)
     log.info(tcn.calc_receptive_field())

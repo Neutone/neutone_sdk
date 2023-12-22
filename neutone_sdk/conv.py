@@ -92,14 +92,13 @@ class Conv1dGeneral(nn.Module):
         self.cached = cached
         self.debug_mode = debug_mode
 
-        left_padding, right_padding = self._calc_padding(kernel_size,
-                                                         stride,
-                                                         padding,
-                                                         dilation,
-                                                         causal)
+        left_padding, right_padding, left_padding_cached, right_padding_cached = (
+            self._calc_padding(kernel_size, stride, padding, dilation, causal))
         self.left_padding = left_padding
         self.right_padding = right_padding
         self.uncached_padding = (left_padding, right_padding)
+        self.left_padding_cached = left_padding_cached
+        self.right_padding_cached = right_padding_cached
 
         self.conv1d = nn.Conv1d(in_channels,
                                 out_channels,
@@ -114,7 +113,7 @@ class Conv1dGeneral(nn.Module):
             # compatible with F.pad(). It's strange that this is inconsistent in torch.
             self.padding_mode = "constant"
         self.padding_cached = PaddingCached(in_channels,
-                                            left_padding,
+                                            left_padding_cached,
                                             use_dynamic_bs,
                                             batch_size,
                                             debug_mode)
@@ -124,34 +123,44 @@ class Conv1dGeneral(nn.Module):
                       stride: int,
                       padding: Union[str, int, Tuple[int], Tuple[int, int]],
                       dilation: int,
-                      causal: bool) -> Tuple[int, int]:
+                      causal: bool) -> Tuple[int, int, int, int]:
         if isinstance(padding, tuple) and len(padding) == 1:
             padding = padding[0]
-
+        padded_kernel_size = (kernel_size - 1) * dilation
         if padding == "valid":
-            return 0, 0
+            left_padding = 0
+            right_padding = 0
         elif padding == "same":
             assert stride == 1, "If padding is 'same', stride must be 1"
-            pad_amount = (kernel_size - 1) * dilation
             if causal:
-                return pad_amount, 0
-            elif pad_amount % 2 == 0:
-                return pad_amount // 2, pad_amount // 2
+                left_padding = padded_kernel_size
+                right_padding = 0
+            elif padded_kernel_size % 2 == 0:
+                left_padding = padded_kernel_size // 2
+                right_padding = padded_kernel_size // 2
             else:
+                left_padding = padded_kernel_size // 2
                 # Favor right padding over left padding just like in nn.Conv1d
-                return pad_amount // 2, pad_amount // 2 + 1
+                right_padding = padded_kernel_size // 2 + 1
         elif isinstance(padding, int):
             assert padding >= 0
             if causal:
-                return padding, 0
+                left_padding = padding
+                right_padding = 0
             else:
-                return padding, padding
+                left_padding = padding
+                right_padding = padding
         else:
             assert len(padding) == 2, "Expected padding to be a tuple of length 2."
             assert padding[0] >= 0 and padding[1] >= 0
             if causal:
                 assert padding[1] == 0, "If causal, right padding must be 0"
-            return padding
+            left_padding = padding[0]
+            right_padding = padding[1]
+
+        left_padding_cached = max(padded_kernel_size, left_padding)
+        right_padding_cached = max(padded_kernel_size, right_padding)
+        return left_padding, right_padding, left_padding_cached, right_padding_cached
 
     def set_cached(self, cached: bool) -> None:
         self.cached = cached

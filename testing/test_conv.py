@@ -63,18 +63,18 @@ def _test_against_conv_torch(in_channels: int,
             audio_block = audio[..., idx * block_size:(idx + 1) * block_size]
             out_blocks.append(conv_gen(audio_block))
         out_cached = tr.cat(out_blocks, dim=-1)
-        out_cached = out_cached[..., conv_gen.left_padding:]
+        out_cached = out_cached[..., conv_gen.left_padding_cached:]
         assert out_cached.shape == out_torch.shape
         assert tr.allclose(out_cached, out_torch)
 
 
 def test_conv1d_general():
-    # causal_flags = [False, True]
-    causal_flags = [True]
+    causal_flags = [False, True]
+    # causal_flags = [True]
     in_channels = [1, 2]
-    out_ch = 1
-    # kernel_sizes = [1, 2, 3, 4, 5]
-    kernel_sizes = [2, 3, 4, 5]
+    out_ch = 3
+    kernel_sizes = [1, 2, 3, 4, 5]
+    # kernel_sizes = [2, 3, 4, 5]
     dilations = [1, 2, 3, 4, 8]
 
     for causal, in_ch, kernel_size, dil in tqdm(itertools.product(causal_flags,
@@ -82,8 +82,10 @@ def test_conv1d_general():
                                                                   kernel_sizes,
                                                                   dilations)):
         log.info(f"Testing causal={causal}, in_ch={in_ch}, kernel_size={kernel_size}, dil={dil}")
-        # _test_against_conv_torch(in_ch, out_ch, kernel_size, padding="same", dilation=dil, causal=causal)
+        _test_against_conv_torch(in_ch, out_ch, kernel_size, padding="same", dilation=dil, causal=causal)
         _test_against_conv_torch(in_ch, out_ch, kernel_size, padding="valid", dilation=dil, causal=causal)
+        _test_against_conv_torch(in_ch, out_ch, kernel_size, padding=0, dilation=dil, causal=causal)
+        # _test_against_conv_torch(in_ch, out_ch, kernel_size, padding=7, dilation=dil, causal=causal)
 
 
 if __name__ == "__main__":

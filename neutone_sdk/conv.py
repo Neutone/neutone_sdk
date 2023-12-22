@@ -92,6 +92,7 @@ class Conv1dGeneral(nn.Module):
         self.cached = cached
         self.debug_mode = debug_mode
 
+        self.padded_kernel_size = (kernel_size - 1) * dilation
         left_padding, right_padding, left_padding_cached, right_padding_cached = (
             self._calc_padding(kernel_size, stride, padding, dilation, causal))
         self.left_padding = left_padding
@@ -162,10 +163,13 @@ class Conv1dGeneral(nn.Module):
         right_padding_cached = max(padded_kernel_size, right_padding)
         return left_padding, right_padding, left_padding_cached, right_padding_cached
 
+    @tr.jit.export
     def set_cached(self, cached: bool) -> None:
         self.cached = cached
-        self.reset()
+        # Batch size needs to be provided for TorchScript
+        self.reset(batch_size=None)
 
+    @tr.jit.export
     def reset(self, batch_size: Optional[int] = None) -> None:
         self.padding_cached.reset(batch_size)
 
@@ -178,6 +182,7 @@ class Conv1dGeneral(nn.Module):
         if self.debug_mode:
             assert x.ndim == 3  # (batch_size, in_ch, samples)
             assert x.size(1) == self.in_channels
+        n_samples = x.size(-1)
         if self.cached:
             x = self.padding_cached(x)
             if self.right_padding > 0:
@@ -187,4 +192,40 @@ class Conv1dGeneral(nn.Module):
             # TODO(cm): prevent dynamic memory allocations here
             x = F.pad(x, self.uncached_padding, mode=self.padding_mode)
         x = self.conv1d(x)
+        if self.cached:
+            if self.causal:
+                x = self.causal_crop(x, n_samples)
+            else:
+                x = self.center_crop(x, n_samples)
         return x
+
+    @staticmethod
+    def center_crop(x: Tensor, length: int) -> Tensor:
+        if x.size(-1) != length:
+            assert x.size(-1) > length
+            start = (x.size(-1) - length) // 2
+            stop = start + length
+            x = x[..., start:stop]
+        return x
+
+    @staticmethod
+    def causal_crop(x: Tensor, length: int) -> Tensor:
+        if x.size(-1) != length:
+            assert x.size(-1) > length
+            x = x[..., -length:]
+        return x
+
+
+if __name__ == "__main__":
+    conv = Conv1dGeneral(1,
+                         16,
+                         3)
+    conv.reset()
+    ts = tr.jit.script(conv)
+    conv.prepare_for_inference()
+    ts = tr.jit.script(conv)
+    conv.set_cached(True)
+    ts = tr.jit.script(conv)
+    conv.set_cached(False)
+    ts = tr.jit.script(conv)
+    exit()

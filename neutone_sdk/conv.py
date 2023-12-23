@@ -15,7 +15,8 @@ log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
 class PaddingCached(nn.Module):
     def __init__(self,
                  n_ch: int,
-                 padding: int,
+                 padding_l: int,
+                 padding_r: int = 0,
                  use_dynamic_bs: bool = True,
                  batch_size: int = 1,
                  debug_mode: bool = True) -> None:
@@ -25,7 +26,8 @@ class PaddingCached(nn.Module):
 
         Args:
             n_ch: Number of channels.
-            padding: Number of padding samples.
+            padding_l: Number of padding samples on the left side.
+            padding_r: Number of padding samples on the right side.
             use_dynamic_bs: If True, the padding will dynamically change batch size to
                             match the input.
             batch_size: If known, the initial batch size can be specified here to avoid
@@ -37,16 +39,20 @@ class PaddingCached(nn.Module):
             assert n_ch > 0
             assert batch_size > 0
         self.n_ch = n_ch
-        self.padding = padding
+        self.padding_l = padding_l
+        self.padding_r = padding_r
         self.use_dynamic_bs = use_dynamic_bs
         self.debug_mode = debug_mode
-        self.register_buffer("pad_buf", tr.zeros((batch_size, n_ch, padding)))
+        self.register_buffer("pad_l_buf", tr.zeros((batch_size, n_ch, padding_l)))
+        self.register_buffer("pad_r_buf", tr.zeros((batch_size, n_ch, padding_r)))
 
     def reset(self, batch_size: Optional[int] = None) -> None:
         if batch_size is not None:
-            self.pad_buf = self.pad_buf.new_zeros((batch_size, self.n_ch, self.padding))
+            self.pad_l_buf = self.pad_l_buf.new_zeros((batch_size, self.n_ch, self.padding_l))
+            self.pad_r_buf = self.pad_r_buf.new_zeros((batch_size, self.n_ch, self.padding_r))
         else:
-            self.pad_buf.zero_()
+            self.pad_l_buf.zero_()
+            self.pad_r_buf.zero_()
 
     def prepare_for_inference(self) -> None:
         self.debug_mode = False
@@ -56,17 +62,21 @@ class PaddingCached(nn.Module):
         if self.debug_mode:
             assert x.ndim == 3  # (batch_size, in_ch, samples)
         # We support padding == 0 for convolutions with kernel size of 1
-        if self.padding == 0:
+        if self.padding_l == 0 and self.padding_r == 0:
             return x
 
         bs = x.size(0)
-        if self.use_dynamic_bs and bs != self.pad_buf.size(0):
+        if self.use_dynamic_bs and bs != self.pad_l_buf.size(0):
             self.reset(bs)
         elif self.debug_mode:
-            assert bs == self.pad_buf.size(0)
+            assert bs == self.pad_l_buf.size(0)
 
-        x = tr.cat([self.pad_buf, x], dim=-1)  # Concat input to the cache
-        self.pad_buf = x[..., -self.padding:]  # Discard old cache
+        if self.padding_l > 0:
+            x = tr.cat([self.pad_l_buf, x], dim=-1)
+            self.pad_l_buf = x[..., -self.padding_l:]
+        if self.padding_r > 0:
+            x = tr.cat([x, self.pad_r_buf], dim=-1)
+            self.pad_r_buf = x[..., self.padding_l:self.padding_l + self.padding_r]
         return x
 
 
@@ -99,7 +109,9 @@ class Conv1dGeneral(nn.Module):
         self.right_padding = right_padding
         self.uncached_padding = (left_padding, right_padding)
         self.left_padding_cached = left_padding_cached
-        self.right_padding_cached = right_padding_cached
+        log.info(f"left_padding: {left_padding}, right_padding: {right_padding}, "
+                 f"left_padding_cached: {left_padding_cached}, "
+                 f"right_padding_cached: {right_padding_cached}")
 
         self.conv1d = nn.Conv1d(in_channels,
                                 out_channels,
@@ -115,9 +127,10 @@ class Conv1dGeneral(nn.Module):
             self.padding_mode = "constant"
         self.padding_cached = PaddingCached(in_channels,
                                             left_padding_cached,
-                                            use_dynamic_bs,
-                                            batch_size,
-                                            debug_mode)
+                                            right_padding,
+                                            use_dynamic_bs=use_dynamic_bs,
+                                            batch_size=batch_size,
+                                            debug_mode=debug_mode)
 
     def _calc_padding(self,
                       kernel_size: int,
@@ -185,9 +198,6 @@ class Conv1dGeneral(nn.Module):
         n_samples = x.size(-1)
         if self.cached:
             x = self.padding_cached(x)
-            if self.right_padding > 0:
-                # TODO(cm): prevent dynamic memory allocations here
-                x = F.pad(x, (0, self.right_padding), mode=self.padding_mode)
         elif self.uncached_padding != (0, 0):
             # TODO(cm): prevent dynamic memory allocations here
             x = F.pad(x, self.uncached_padding, mode=self.padding_mode)
@@ -196,7 +206,9 @@ class Conv1dGeneral(nn.Module):
             if self.causal:
                 x = self.causal_crop(x, n_samples)
             else:
-                x = self.center_crop(x, n_samples)
+                # x = self.center_crop(x, n_samples)
+                if self.right_padding > 0:
+                    x = x[..., -(self.right_padding + n_samples):-self.right_padding]
         return x
 
     @staticmethod

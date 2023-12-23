@@ -186,6 +186,9 @@ class Conv1dGeneral(nn.Module):
     def reset(self, batch_size: Optional[int] = None) -> None:
         self.padding_cached.reset(batch_size)
 
+    def calc_delay_samples(self) -> int:
+        return self.right_padding
+
     def prepare_for_inference(self) -> None:
         self.debug_mode = False
         self.conv1d.eval()

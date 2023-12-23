@@ -32,19 +32,17 @@ def _test_against_conv_torch(in_channels: int,
                              dilation=dilation,
                              padding_mode=padding_mode,
                              causal=causal,
-                             cached=False,
-                             bias=False)
+                             cached=False)
     padding_torch = padding
     if causal and padding == "same":
-        assert conv_gen.right_padding == 0
+        assert conv_gen.padding_r == 0
         padding_torch = conv_gen.padded_kernel_size
     conv_torch = nn.Conv1d(in_channels,
                            out_channels,
                            kernel_size,
                            padding=padding_torch,
                            dilation=dilation,
-                           padding_mode=padding_mode,
-                           bias=False)
+                           padding_mode=padding_mode)
 
     conv_torch.weight = nn.Parameter(conv_gen.conv1d.weight.clone())
     if conv_torch.bias is not None:
@@ -55,8 +53,8 @@ def _test_against_conv_torch(in_channels: int,
     out_gen = conv_gen(audio)
     # Regular torch conv1d can't do causal convs so get rid of the extra right samples
     if causal and padding != "valid":
-        if conv_gen.left_padding > 0:
-            out_torch = out_torch[..., :-conv_gen.left_padding]
+        if conv_gen.padding_l > 0:
+            out_torch = out_torch[..., :-conv_gen.padding_l]
     assert out_gen.shape == out_torch.shape
     assert tr.allclose(out_gen, out_torch)
 
@@ -67,7 +65,7 @@ def _test_against_conv_torch(in_channels: int,
         out_blocks.append(conv_gen(audio_block))
     out_cached = tr.cat(out_blocks, dim=-1)
 
-    delay_samples = conv_gen.calc_delay_samples()
+    delay_samples = conv_gen.get_delay_samples()
     if delay_samples > 0:
         out_cached = out_cached[..., delay_samples:]
         out_torch = out_torch[..., :-delay_samples]
@@ -91,12 +89,20 @@ def test_conv1d_general():
                                                                   in_channels,
                                                                   kernel_sizes,
                                                                   dilations)):
-        rand_padding = random.randint(1, max_rand_padding)
-        log.info(f"Testing causal={causal}, in_ch={in_ch}, kernel_size={kernel_size}, dil={dil}, rand_padding={rand_padding}")
-        _test_against_conv_torch(in_ch, out_ch, kernel_size, padding="same", dilation=dil, causal=causal)
-        _test_against_conv_torch(in_ch, out_ch, kernel_size, padding="valid", dilation=dil, causal=causal)
-        _test_against_conv_torch(in_ch, out_ch, kernel_size, padding=0, dilation=dil, causal=causal)
-        _test_against_conv_torch(in_ch, out_ch, kernel_size, padding=rand_padding, dilation=dil, causal=causal)
+        rand_pad = random.randint(1, max_rand_padding)
+        log.info(f"Testing causal={causal}, "
+                 f"in_ch={in_ch}, "
+                 f"kernel_size={kernel_size}, "
+                 f"dil={dil}, "
+                 f"rand_pad={rand_pad}")
+        _test_against_conv_torch(
+            in_ch, out_ch, kernel_size, padding="same", dilation=dil, causal=causal)
+        _test_against_conv_torch(
+            in_ch, out_ch, kernel_size, padding="valid", dilation=dil, causal=causal)
+        _test_against_conv_torch(
+            in_ch, out_ch, kernel_size, padding=0, dilation=dil, causal=causal)
+        _test_against_conv_torch(
+            in_ch, out_ch, kernel_size, padding=rand_pad, dilation=dil, causal=causal)
 
 
 if __name__ == "__main__":

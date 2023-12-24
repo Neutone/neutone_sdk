@@ -142,6 +142,8 @@ class Conv1dGeneral(nn.Module):
         # The left padding required for cached mode is the maximum of the kernel size
         # and the specified left padding for the convolution.
         padding_l_cached = max(padded_kernel_size, padding_l)
+        # if padding_r == 0:
+        #     assert causal, "The convolution is causal, please set causal=True"
 
         self.padded_kernel_size = padded_kernel_size
         self.padding_l = padding_l
@@ -315,6 +317,9 @@ class Conv1dGeneral(nn.Module):
         if x.size(-1) != length:
             assert x.size(-1) > length
             start = (x.size(-1) - length) // 2
+            if x.size(-1) % 2 != 0:
+                # torch.nn.Conv1d favors right padding over left padding in this case
+                start += 1
             stop = start + length
             x = x[..., start:stop]
         return x

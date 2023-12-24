@@ -48,8 +48,10 @@ class PaddingCached(nn.Module):
 
     def reset(self, batch_size: Optional[int] = None) -> None:
         if batch_size is not None:
-            self.pad_l_buf = self.pad_l_buf.new_zeros((batch_size, self.n_ch, self.padding_l))
-            self.pad_r_buf = self.pad_r_buf.new_zeros((batch_size, self.n_ch, self.padding_r))
+            self.pad_l_buf = self.pad_l_buf.new_zeros(
+                (batch_size, self.n_ch, self.padding_l))
+            self.pad_r_buf = self.pad_r_buf.new_zeros(
+                (batch_size, self.n_ch, self.padding_r))
         else:
             self.pad_l_buf.zero_()
             self.pad_r_buf.zero_()
@@ -65,17 +67,21 @@ class PaddingCached(nn.Module):
         if self.padding_l == 0 and self.padding_r == 0:
             return x
 
+        # Dynamic batch size resizing
         bs = x.size(0)
         if self.use_dynamic_bs and bs != self.pad_l_buf.size(0):
             self.reset(bs)
         elif self.debug_mode:
             assert bs == self.pad_l_buf.size(0)
 
+        # Left padding
         if self.padding_l > 0:
             x = tr.cat([self.pad_l_buf, x], dim=-1)
             self.pad_l_buf = x[..., -self.padding_l:]
+        # Right padding
         if self.padding_r > 0:
             x = tr.cat([x, self.pad_r_buf], dim=-1)
+            # We need to account for left padding since it may have been added first
             self.pad_r_buf = x[..., self.padding_l:self.padding_l + self.padding_r]
         return x
 
@@ -95,6 +101,32 @@ class Conv1dGeneral(nn.Module):
                  use_dynamic_bs: bool = True,
                  batch_size: int = 1,
                  debug_mode: bool = True) -> None:
+        """
+        Generalized 1D convolution that supports causal convolutions and cached
+        convolutions. The convolution can be toggled to be cached or not at any point in
+        time via the method `set_cached()`. Behaves identically to torch.nn.Conv1d when
+        not in cached mode and causal is False. When causal is True, the convolution is
+        padded on the left side only. When cached and not causal, the convolution delays
+        the output by `get_delay_samples()` samples. TorchScript compatible.
+
+        Args:
+            in_channels: Number of channels in the input.
+            out_channels: Number of channels produced by the convolution.
+            kernel_size: Size of the convolving kernel.
+            stride: Stride of the convolution.
+            padding: Padding added to both sides of the input. Can be 'same', 'valid',
+                     or an integer.
+            padding_mode: 'zeros', 'reflect', 'replicate' or 'circular'.
+            dilation: Spacing between kernel elements.
+            bias: If True, adds a learnable bias to the output.
+            causal: If True, the convolution is causal.
+            cached: If True, the convolution is cached.
+            use_dynamic_bs: If True, the convolution will support any batch size while
+                            in cached mode at the expense of dynamic memory allocations.
+            batch_size: If known, the initial batch size can be specified here to avoid
+                        dynamic changes.
+            debug_mode: If True, assert statements are enabled.
+        """
         super().__init__()
         if stride != 1:
             log.warning("Stride > 1 has not been tested yet")
@@ -107,12 +139,15 @@ class Conv1dGeneral(nn.Module):
         padded_kernel_size = (kernel_size - 1) * dilation
         padding_l, padding_r = self._calc_padding(
             kernel_size, stride, padding, dilation, causal)
+        # The left padding required for cached mode is the maximum of the kernel size
+        # and the specified left padding for the convolution.
         padding_l_cached = max(padded_kernel_size, padding_l)
 
         self.padded_kernel_size = padded_kernel_size
         self.padding_l = padding_l
         self.padding_r = padding_r
 
+        # The trainable weights are contained inside a torch.nn.Conv1d module
         self.conv1d = nn.Conv1d(in_channels,
                                 out_channels,
                                 kernel_size=(kernel_size,),
@@ -138,6 +173,21 @@ class Conv1dGeneral(nn.Module):
                       padding: Union[str, int, Tuple[int]],
                       dilation: int,
                       causal: bool) -> Tuple[int, int]:
+        """
+        Calculates the left and right padding for the convolution.
+
+        Args:
+            kernel_size: Size of the convolving kernel.
+            stride: Stride of the convolution.
+            padding: Padding added to both sides of the input. Can be 'same', 'valid',
+                     or an integer.
+            dilation: Spacing between kernel elements.
+            causal: If True, the convolution is causal.
+
+        Returns:
+            Tuple of left and right padding.
+        """
+        # Unpack tuple padding if necessary
         if isinstance(padding, tuple) and len(padding) == 1:
             padding = padding[0]
         padded_kernel_size = (kernel_size - 1) * dilation
@@ -154,7 +204,7 @@ class Conv1dGeneral(nn.Module):
                 padding_r = padded_kernel_size // 2
             else:
                 padding_l = padded_kernel_size // 2
-                # Favor right padding over left padding just like in nn.Conv1d
+                # Favor right padding over left padding to match torch.nn.Conv1d
                 padding_r = padded_kernel_size // 2 + 1
         else:
             assert isinstance(padding, int)
@@ -170,23 +220,48 @@ class Conv1dGeneral(nn.Module):
 
     @tr.jit.export
     def is_cached(self) -> bool:
+        """Returns True if the convolution is cached, False otherwise."""
         return self.cached
 
     @tr.jit.export
     def set_cached(self, cached: bool) -> None:
+        """
+        Sets the convolution to cached or not cached mode and resets its state.
+
+        Args:
+            cached: If True, the convolution is cached. If False, it is not cached.
+        """
         self.cached = cached
         # Batch size needs to be provided for TorchScript
         self.reset(batch_size=None)
 
     @tr.jit.export
     def reset(self, batch_size: Optional[int] = None) -> None:
+        """
+        Resets the convolution's state. If batch_size is provided, the cached padding
+        will be resized to match the new batch size.
+
+        Args:
+            batch_size: If provided, the cached padding will be resized to match the new
+                        batch size.
+        """
         self.padding_cached.reset(batch_size)
 
     @tr.jit.export
     def get_delay_samples(self) -> int:
+        """
+        Returns the number of samples that the convolution delays the output by. This
+        should always be 0 when the convolution is causal. This is ill-defined when not
+        in cached mode since the output number of samples can be different than the
+        input number of samples, so this would typically only be used in cached mode.
+        """
         return self.padding_r
 
     def prepare_for_inference(self) -> None:
+        """
+        Prepares the convolution for inference by disabling debug mode and ensuring the
+        convolution is in cached mode.
+        """
         if not self.is_cached():
             log.info(f"Converting Conv1dGeneral to cached in prepare_for_inference()")
             self.set_cached(True)
@@ -195,6 +270,16 @@ class Conv1dGeneral(nn.Module):
         self.padding_cached.prepare_for_inference()
 
     def forward(self, x: Tensor) -> Tensor:
+        """
+        Applies the convolution to the input tensor. If the convolution is cached, the
+        output tensor will always be the same size as the input tensor.
+
+        Args:
+            x: Input tensor of shape (batch_size, in_ch, in_samples).
+
+        Returns:
+            Output tensor of shape (batch_size, out_ch, out_samples).
+        """
         if self.debug_mode:
             assert x.ndim == 3  # (batch_size, in_ch, samples)
             assert x.size(1) == self.in_channels
@@ -209,11 +294,24 @@ class Conv1dGeneral(nn.Module):
             if self.causal:
                 x = self.causal_crop(x, n_samples)
             elif self.padding_r > 0:
+                # If cached, but non-causal, we need to remove the right padding which
+                # is the non-causal portion of the convolution's output.
                 x = x[..., -(self.padding_r + n_samples):-self.padding_r]
         return x
 
     @staticmethod
     def center_crop(x: Tensor, length: int) -> Tensor:
+        """
+        Crops the input tensor to the specified length by removing samples from the
+        beginning and end of the input tensor.
+
+        Args:
+            x: Input tensor of shape (..., n_samples).
+            length: Length of the output tensor. Must be less than n_samples.
+
+        Returns:
+            Output tensor of shape (..., length).
+        """
         if x.size(-1) != length:
             assert x.size(-1) > length
             start = (x.size(-1) - length) // 2
@@ -223,22 +321,18 @@ class Conv1dGeneral(nn.Module):
 
     @staticmethod
     def causal_crop(x: Tensor, length: int) -> Tensor:
+        """
+        Crops the input tensor to the specified length by removing samples from the
+        beginning of the input tensor.
+
+        Args:
+            x: Input tensor of shape (..., n_samples).
+            length: Length of the output tensor. Must be less than n_samples.
+
+        Returns:
+            Output tensor of shape (..., length).
+        """
         if x.size(-1) != length:
             assert x.size(-1) > length
             x = x[..., -length:]
         return x
-
-
-if __name__ == "__main__":
-    conv = Conv1dGeneral(1,
-                         16,
-                         3)
-    conv.reset()
-    ts = tr.jit.script(conv)
-    conv.prepare_for_inference()
-    ts = tr.jit.script(conv)
-    conv.set_cached(True)
-    ts = tr.jit.script(conv)
-    conv.set_cached(False)
-    ts = tr.jit.script(conv)
-    exit()

@@ -35,8 +35,10 @@ def _test_against_conv_torch(in_channels: int,
                              cached=False)
     padding_torch = padding
     if causal and padding == "same":
+        # torch.nn.Conv1d doesn't support causal convs so we need to add the causal
+        # padding to both sides and then remove it from the right side later
         assert conv_gen.padding_r == 0
-        padding_torch = conv_gen.padded_kernel_size
+        padding_torch = conv_gen.padding_l
     conv_torch = nn.Conv1d(in_channels,
                            out_channels,
                            kernel_size,
@@ -44,6 +46,7 @@ def _test_against_conv_torch(in_channels: int,
                            dilation=dilation,
                            padding_mode=padding_mode)
 
+    # Copy weights and biases for testing
     conv_torch.weight = nn.Parameter(conv_gen.conv1d.weight.clone())
     if conv_torch.bias is not None:
         conv_torch.bias = nn.Parameter(conv_gen.conv1d.bias.clone())
@@ -51,7 +54,7 @@ def _test_against_conv_torch(in_channels: int,
     audio = tr.rand((batch_size, in_channels, n_blocks * block_size))
     out_torch = conv_torch(audio)
     out_gen = conv_gen(audio)
-    # Regular torch conv1d can't do causal convs so get rid of the extra right samples
+    # torch.nn.Conv1d doesn't support causal convs so get rid of the extra right samples
     if causal and padding != "valid":
         if conv_gen.padding_l > 0:
             out_torch = out_torch[..., :-conv_gen.padding_l]
@@ -62,13 +65,21 @@ def _test_against_conv_torch(in_channels: int,
     out_blocks = []
     for idx in range(n_blocks):
         audio_block = audio[..., idx * block_size:(idx + 1) * block_size]
-        out_blocks.append(conv_gen(audio_block))
+        out_block = conv_gen(audio_block)
+        out_blocks.append(out_block)
+    assert all(b.size(-1) == block_size for b in out_blocks)
     out_cached = tr.cat(out_blocks, dim=-1)
 
     delay_samples = conv_gen.get_delay_samples()
     if delay_samples > 0:
+        # Remove the delay samples from the beginning of the cached output to align
+        # it with not cached output
         out_cached = out_cached[..., delay_samples:]
+        # Remove the delay samples from the end of the not cached output since they were
+        # never computed by the cached convolution
         out_torch = out_torch[..., :-delay_samples]
+    # Different padding modes can result in different output lengths of out_torch,
+    # so we need to crop the longer one to align it with the shorter one
     if out_cached.size(-1) > out_torch.size(-1):
         out_cached = Conv1dGeneral.causal_crop(out_cached, out_torch.size(-1))
     else:
@@ -105,5 +116,21 @@ def test_conv1d_general():
             in_ch, out_ch, kernel_size, padding=rand_pad, dilation=dil, causal=causal)
 
 
+def test_dynamic_bs() -> None:
+    conv_gen = Conv1dGeneral(in_channels=2,
+                             out_channels=16,
+                             kernel_size=5,
+                             padding="same",
+                             dilation=2,
+                             causal=False,
+                             cached=True,
+                             use_dynamic_bs=True)
+    for bs in range(64):
+        audio = tr.rand((bs, 2, 128))
+        out = conv_gen(audio)
+        assert out.shape == (bs, 16, 128)
+
+
 if __name__ == "__main__":
     test_conv1d_general()
+    test_dynamic_bs()

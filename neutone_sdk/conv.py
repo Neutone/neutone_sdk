@@ -268,8 +268,8 @@ class Conv1dGeneral(nn.Module):
             log.info(f"Converting Conv1dGeneral to cached in prepare_for_inference()")
             self.set_cached(True)
         self.debug_mode = False
-        self.conv1d.eval()
         self.padding_cached.prepare_for_inference()
+        self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
         """

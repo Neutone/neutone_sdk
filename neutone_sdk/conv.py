@@ -59,6 +59,7 @@ class PaddingCached(nn.Module):
     def prepare_for_inference(self) -> None:
         self.debug_mode = False
         self.reset()
+        self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
         if self.debug_mode:

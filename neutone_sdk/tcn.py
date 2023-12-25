@@ -341,6 +341,7 @@ class TCN(nn.Module):
         self.debug_mode = False
         for block in self.blocks:
             block.prepare_for_inference()
+        self.set_cached(True)
         self.eval()
 
     def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:

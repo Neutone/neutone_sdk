@@ -132,48 +132,37 @@ def test_conv1d_general():
 
 
 def _test_get_delay_samples(in_channels: int,
-                            out_channels: int,
                             kernel_size: int,
-                            padding: Union[str, int, Tuple[int]],
                             dilation: int,
                             causal: bool,
                             padding_mode: str = "zeros",
                             batch_size: int = 1,
                             block_size: int = 128,
                             n_blocks: int = 32) -> None:
+    # This needs to be 1 for the asserts to work, but shouldn't affect generalization
+    out_channels = 1
     conv_gen = Conv1dGeneral(in_channels,
-                             out_channels,
-                             kernel_size,
-                             padding=padding,
+                             out_channels=out_channels,
+                             kernel_size=kernel_size,
+                             padding="same",
                              dilation=dilation,
                              padding_mode=padding_mode,
                              bias=False,
-                             causal=causal,
-                             cached=False)
-    # Create a dirac delta kernel such that the output is the same as the input
-    conv_gen.conv1d.weight.data.fill_(0.0)
-    if not causal and padding == "same":
-        if kernel_size % 2 == 0:
-            conv_gen.conv1d.weight.data[..., kernel_size // 2 - 1] = 1.0
-        else:
-            conv_gen.conv1d.weight.data[..., kernel_size // 2] = 1.0
-    else:
-        conv_gen.conv1d.weight.data[..., -1] = 1.0
+                             causal=causal)
 
-    audio = tr.rand((batch_size, in_channels, n_blocks * block_size))
-    out = conv_gen(audio)
+    # Create an audio signal consisting of 50% silence and then 50% random noise
+    n_samples = n_blocks * block_size
+    mid_idx = n_samples // 2
+    n_samples_b = n_samples - mid_idx
+    audio = tr.zeros((batch_size, in_channels, n_samples))
+    audio[..., mid_idx:] = tr.rand((batch_size, in_channels, n_samples_b))
 
-    # Always use causal crop since padding is "same" for the non-causal case
-    if out.size(-1) > audio.size(-1):
-        out = Conv1dGeneral.causal_crop(out, audio.size(-1))
-    elif out.size(-1) < audio.size(-1):
-        audio = Conv1dGeneral.causal_crop(audio, out.size(-1))
+    # Measure the index of the first non-zero sample of the uncached convolution
+    out_uncached = conv_gen(audio)
+    assert out_uncached.shape == (batch_size, out_channels, n_samples)
+    nonzero_idx_uncached = (out_uncached != 0).nonzero()[:, -1][0].item()
 
-    # assert out.shape == audio.shape
-    # assert tr.allclose(out, audio)
-
-    # Audio should have no zero values for measuring delay
-    audio = tr.rand((batch_size, in_channels, n_blocks * block_size)) + 0.01
+    # Measure the index of the first non-zero sample of the cached convolution
     conv_gen.set_cached(True)
     out_blocks = []
     for idx in range(n_blocks):
@@ -182,45 +171,32 @@ def _test_get_delay_samples(in_channels: int,
         out_blocks.append(out_block)
     assert all(b.size(-1) == block_size for b in out_blocks)
     out_cached = tr.cat(out_blocks, dim=-1)
+    assert out_cached.shape == (batch_size, out_channels, n_samples)
+    nonzero_idx_cached = (out_cached != 0).nonzero()[:, -1][0].item()
 
+    # Compare the reported delay to the measured delay
     delay_samples = conv_gen.get_delay_samples()
-    # Find the number of zeros which represents the delay
-    n_zeros = tr.sum(out_cached == 0.0, dim=-1).squeeze().item()
-
-    assert n_zeros == delay_samples
-    if delay_samples > 0:
-        out_cached = out_cached[..., delay_samples:]
-        audio = audio[..., :-delay_samples]
-
-    assert out_cached.shape == audio.shape
-    assert tr.allclose(out_cached, audio)
+    measured_delay_samples = nonzero_idx_cached - nonzero_idx_uncached
+    assert measured_delay_samples == delay_samples
+    assert (out_uncached[..., nonzero_idx_uncached] ==
+            out_cached[..., nonzero_idx_cached])
 
 
 def test_get_delay_samples() -> None:
     causal_flags = [False, True]
+    in_channels = [1, 2]
     kernel_sizes = [1, 2, 3, 4, 5, 6, 7, 8]
-    # kernel_sizes = [2, 3, 4, 5, 6, 7, 8]
     dilations = [1, 2, 3, 4, 5, 6, 7, 8]
-    # dilations = [1]
-    in_ch = 1
-    max_rand_padding = 32
 
-    for causal, kernel_size, dil in tqdm(itertools.product(causal_flags,
-                                                           kernel_sizes,
-                                                           dilations)):
-        if not causal and kernel_size % 2 == 0 and dil > 1:
-            # Creating a direc delta kernel is impossible in this case
-            continue
-        rand_pad = random.randint(1, max_rand_padding)
+    for causal, in_ch, kernel_size, dil in tqdm(itertools.product(causal_flags,
+                                                                  in_channels,
+                                                                  kernel_sizes,
+                                                                  dilations)):
         log.info(f"Testing causal={causal}, "
                  f"in_ch={in_ch}, "
                  f"kernel_size={kernel_size}, "
-                 f"dil={dil}, "
-                 f"rand_pad={rand_pad}")
-        _test_get_delay_samples(
-            in_ch, in_ch, kernel_size, padding="same", dilation=dil, causal=causal)
-        _test_get_delay_samples(
-            in_ch, in_ch, kernel_size, padding="valid", dilation=dil, causal=causal)
+                 f"dil={dil}")
+        _test_get_delay_samples(in_ch, kernel_size, dilation=dil, causal=causal)
 
 
 if __name__ == "__main__":

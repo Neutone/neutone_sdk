@@ -298,7 +298,7 @@ class Conv1dGeneral(nn.Module):
             elif self.padding_r > 0:
                 # If cached, but non-causal, we need to remove the right padding which
                 # is the non-causal portion of the convolution's output.
-                x = x[..., -(self.padding_r + n_samples):-self.padding_r]
+                x = self.right_offset_crop(x, n_samples, self.padding_r)
         return x
 
     @staticmethod
@@ -340,4 +340,25 @@ class Conv1dGeneral(nn.Module):
         if x.size(-1) != length:
             assert x.size(-1) > length
             x = x[..., -length:]
+        return x
+
+    @staticmethod
+    def right_offset_crop(x: Tensor, length: int, right_offset: int) -> Tensor:
+        """
+        Crops the input tensor to the specified length by removing exactly
+        `right_offset` number of samples from the right of the input.
+
+        Args:
+            x: Input tensor of shape (..., n_samples).
+            length: Length of the output tensor. Must be less than n_samples.
+            right_offset: Number of samples to remove from the right of the input.
+
+        Returns:
+            Output tensor of shape (..., length).
+        """
+        if x.size(-1) != length:
+            assert x.size(-1) >= length + right_offset
+            stop = x.size(-1) - right_offset
+            start = stop - length
+            x = x[..., start:stop]
         return x

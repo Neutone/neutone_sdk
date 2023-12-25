@@ -1,86 +1,23 @@
 import logging
 import os
-from typing import Optional, List
+from typing import Optional, List, Union, Tuple
 
 import torch as tr
 from torch import Tensor
 from torch import nn
+
+from neutone_sdk.conv import Conv1dGeneral
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
 
 
-def center_crop(x: Tensor, length: int) -> Tensor:
-    if x.size(-1) != length:
-        assert x.size(-1) > length
-        start = (x.size(-1) - length) // 2
-        stop = start + length
-        x = x[..., start:stop]
-    return x
-
-
-def causal_crop(x: Tensor, length: int) -> Tensor:
-    if x.size(-1) != length:
-        assert x.size(-1) > length
-        stop = x.size(-1) - 1
-        start = stop - length
-        x = x[..., start:stop]
-    return x
-
-
-# TODO(cm): optimize for TorchScript
-class PaddingCached(nn.Module):
-    """Cached padding for cached convolutions."""
-    def __init__(self, n_ch: int, padding: int) -> None:
-        super().__init__()
-        self.n_ch = n_ch
-        self.padding = padding
-        self.register_buffer("pad_buf", tr.zeros((1, n_ch, padding)))
-
-    def forward(self, x: Tensor) -> Tensor:
-        assert x.ndim == 3  # (batch_size, in_ch, samples)
-        bs = x.size(0)
-        if bs > self.pad_buf.size(0):  # Perform resizing once if batch size is not 1
-            self.pad_buf = self.pad_buf.repeat(bs, 1, 1)
-        x = tr.cat([self.pad_buf, x], dim=-1)  # concat input signal to the cache
-        self.pad_buf = x[..., -self.padding:]  # discard old cache
-        return x
-
-
-class Conv1dCached(nn.Module):  # Conv1d with cache
-    """Cached causal convolution for streaming."""
-    def __init__(self,
-                 in_channels: int,
-                 out_channels: int,
-                 kernel_size: int,
-                 stride: int,
-                 padding: int = 0,
-                 dilation: int = 1,
-                 bias: bool = True) -> None:
-        super().__init__()
-        assert padding == 0  # We include padding in the constructor to match the Conv1d constructor
-        padding = (kernel_size - 1) * dilation
-        self.pad = PaddingCached(in_channels, padding)
-        self.conv = nn.Conv1d(in_channels,
-                              out_channels,
-                              (kernel_size,),
-                              (stride,),
-                              padding=0,
-                              dilation=(dilation,),
-                              bias=bias)
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.pad(x)  # get (cached input + current input)
-        x = self.conv(x)
-        return x
-
-
 class FiLM(nn.Module):
     def __init__(self,
                  cond_dim: int,  # dim of conditioning input
                  num_features: int,  # dim of the conv channel
-                 use_bn: bool = True) -> None:  # TODO(cm): check what this default value should be
+                 use_bn: bool) -> None:
         super().__init__()
         self.num_features = num_features
         self.use_bn = use_bn
@@ -102,95 +39,139 @@ class FiLM(nn.Module):
 
 class TCNBlock(nn.Module):
     def __init__(self,
-                 in_ch: int,
-                 out_ch: int,
+                 in_channels: int,
+                 out_channels: int,
                  kernel_size: int = 3,
-                 dilation: int = 1,
                  stride: int = 1,
-                 padding: Optional[int] = 0,
+                 padding: Union[str, int, Tuple[int]] = "same",
+                 dilation: int = 1,
+                 bias: bool = True,
+                 padding_mode: str = "zeros",
+                 is_causal: bool = True,
+                 is_cached: bool = False,
+                 use_dynamic_bs: bool = True,
+                 batch_size: int = 1,
                  use_ln: bool = False,
                  temporal_dim: Optional[int] = None,
                  use_act: bool = True,
                  use_res: bool = True,
                  cond_dim: int = 0,
-                 use_film_bn: bool = True,
-                 is_causal: bool = True,
-                 is_cached: bool = False) -> None:
+                 use_film_bn: bool = True,  # TODO(cm): check if this should be false
+                 debug_mode: bool = True) -> None:
         super().__init__()
-        self.in_ch = in_ch
-        self.out_ch = out_ch
-        self.kernel_size = kernel_size
-        self.dilation = dilation
-        self.stride = stride
         self.use_ln = use_ln
         self.temporal_dim = temporal_dim
         self.use_act = use_act
         self.use_res = use_res
         self.cond_dim = cond_dim
         self.use_film_bn = use_film_bn
-        self.is_causal = is_causal
-        self.is_cached = is_cached
-        if is_causal:
-            assert padding == 0, "If the TCN is causal, padding must be 0"
-            self.crop_fn = causal_crop
-        else:
-            self.crop_fn = center_crop
-        if is_cached:
-            assert is_causal, "If the TCN is streaming, it must be causal"
-            self.conv_cls = Conv1dCached
-        else:
-            self.conv_cls = nn.Conv1d
-
-        if padding is None:
-            padding = kernel_size // 2 * dilation
-            log.debug(f"Setting padding automatically to {padding} samples")
-        self.padding = padding
+        self.debug_mode = debug_mode
 
         self.ln = None
         if use_ln:
             assert temporal_dim is not None and temporal_dim > 0
-            self.ln = nn.LayerNorm([in_ch, temporal_dim], elementwise_affine=False)
+            self.ln = nn.LayerNorm(
+                [in_channels, temporal_dim], elementwise_affine=False)
 
         self.act = None
         if use_act:
-            self.act = nn.PReLU(out_ch)
+            self.act = nn.PReLU(out_channels)
 
-        self.conv = self.conv_cls(
-            in_ch,
-            out_ch,
-            kernel_size,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            bias=True,
-        )
+        self.conv = Conv1dGeneral(in_channels,
+                                  out_channels,
+                                  kernel_size,
+                                  stride=stride,
+                                  padding=padding,
+                                  dilation=dilation,
+                                  bias=bias,
+                                  padding_mode=padding_mode,
+                                  causal=is_causal,
+                                  cached=is_cached,
+                                  use_dynamic_bs=use_dynamic_bs,
+                                  batch_size=batch_size,
+                                  debug_mode=debug_mode)
         self.res = None
         if use_res:
-            self.res = nn.Conv1d(in_ch, out_ch, kernel_size=(1,), stride=(stride,), bias=False)
+            self.res = nn.Conv1d(in_channels,
+                                 out_channels,
+                                 kernel_size=(1,),
+                                 stride=(stride,),
+                                 bias=False)
 
         self.film = None
         if cond_dim > 0:
-            self.film = FiLM(cond_dim, out_ch, use_bn=use_film_bn)
+            self.film = FiLM(cond_dim, out_channels, use_bn=use_film_bn)
 
+    @tr.jit.export
     def is_conditional(self) -> bool:
+        """Returns True if the TCN block is conditional, False otherwise."""
         return self.cond_dim > 0
 
+    @tr.jit.export
+    def is_cached(self) -> bool:
+        """Returns True if the TCN block is cached, False otherwise."""
+        return self.conv.is_cached()
+
+    @tr.jit.export
+    def set_cached(self, cached: bool) -> None:
+        """
+        Sets the TCN block to cached or not cached mode and resets its state.
+
+        Args:
+            cached: If True, the TCN block is cached. If False, it is not cached.
+        """
+        self.conv.set_cached(cached)
+
+    @tr.jit.export
+    def reset(self, batch_size: Optional[int] = None) -> None:
+        """
+        Resets the TCN block's state. If batch_size is provided, the cached padding
+        will be resized to match the new batch size.
+
+        Args:
+            batch_size: If provided, the cached padding will be resized to match the new
+                        batch size.
+        """
+        self.conv.reset(batch_size)
+
+    @tr.jit.export
+    def get_delay_samples(self) -> int:
+        """
+        Returns the number of samples that the TCN block delays the output by. This
+        should always be 0 when the TCN block is causal. This is ill-defined when not
+        in cached mode since the output number of samples can be different than the
+        input number of samples, so this would typically only be used in cached mode.
+        """
+        return self.conv.get_delay_samples()
+
+    def prepare_for_inference(self) -> None:
+        """
+        Prepares the TCN block for inference by disabling debug mode and ensuring the
+        TCN block is in cached mode.
+        """
+        self.debug_mode = False
+        self.conv.prepare_for_inference()
+        self.eval()  # TODO(cm): check if this is applied to all modules recursively
+
     def forward(self, x: Tensor, cond: Optional[Tensor] = None) -> Tensor:
-        assert x.ndim == 3  # (batch_size, in_ch, samples)
+        if self.debug_mode:
+            assert x.ndim == 3  # (batch_size, in_ch, samples)
         x_in = x
         if self.ln is not None:
-            assert x.size(1) == self.in_ch
-            assert x.size(2) == self.temporal_dim
+            if self.debug_mode:
+                assert x.size(1) == self.in_ch
+                assert x.size(2) == self.temporal_dim
             x = self.ln(x)
         x = self.conv(x)
         if self.film is not None:
-            assert cond is not None
+            if self.debug_mode:
+                assert cond is not None
             x = self.film(x, cond)
         if self.act is not None:
             x = self.act(x)
         if self.res is not None:
             res = self.res(x_in)
-            x_res = self.crop_fn(res, x.size(-1))
+            x_res = self.crop_fn(res, x.size(-1))  # TODO
             x += x_res
         return x
 

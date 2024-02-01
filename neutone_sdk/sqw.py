@@ -3,7 +3,7 @@ import math
 import os
 from typing import Optional, List
 
-import torch as tr  # TODO(cm): always use torch. not tr. since torchscript sometimes doesn't like compiling it
+import torch as tr
 from torch import Tensor, nn
 
 from neutone_sdk import WaveformToWaveformMetadata, validate_waveform

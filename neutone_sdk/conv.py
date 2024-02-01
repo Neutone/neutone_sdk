@@ -22,7 +22,7 @@ class PaddingCached(nn.Module):
                  debug_mode: bool = True) -> None:
         """
         Cached padding for cached convolutions. Handles dynamic batch sizes by default
-        at the expense of dynamic memory allocations.
+        at the expense of dynamic memory allocations. TorchScript compatible.
 
         Args:
             n_ch: Number of channels.
@@ -46,7 +46,16 @@ class PaddingCached(nn.Module):
         self.register_buffer("pad_l_buf", tr.zeros((batch_size, n_ch, padding_l)))
         self.register_buffer("pad_r_buf", tr.zeros((batch_size, n_ch, padding_r)))
 
+    @tr.jit.export
     def reset(self, batch_size: Optional[int] = None) -> None:
+        """
+        Resets the padding's state. If batch_size is provided, the cached padding will
+        be resized to match the new batch size.
+
+        Args:
+            batch_size: If provided, the cached padding will be resized to match the new
+                        batch size.
+        """
         if batch_size is not None:
             self.pad_l_buf = self.pad_l_buf.new_zeros(
                 (batch_size, self.n_ch, self.padding_l))
@@ -57,11 +66,26 @@ class PaddingCached(nn.Module):
             self.pad_r_buf.zero_()
 
     def prepare_for_inference(self) -> None:
+        """
+        Prepares the padding for inference by disabling debug mode. This method is not
+        exported to TorchScript and should be called before converting a model to
+        TorchScript since this implies it is going to be used for inference.
+        """
         self.debug_mode = False
         self.reset()
         self.eval()
 
     def forward(self, x: Tensor) -> Tensor:
+        """
+        Applies the padding to the input tensor.
+
+        Args:
+            x: Input tensor of shape (batch_size, in_ch, in_samples).
+
+        Returns:
+            Padded input tensor of shape (batch_size, in_ch, in_samples + padding_l
+            + padding_r).
+        """
         if self.debug_mode:
             assert x.ndim == 3  # (batch_size, in_ch, samples)
         # We support padding == 0 for convolutions with kernel size of 1
@@ -130,7 +154,7 @@ class Conv1dGeneral(nn.Module):
         """
         super().__init__()
         if stride != 1:
-            log.warning("Stride > 1 has not been tested yet")
+            raise NotImplementedError("Stride > 1 has not been implemented yet")
         self.in_channels = in_channels
         self.padding_mode = padding_mode
         self.causal = causal
@@ -143,8 +167,6 @@ class Conv1dGeneral(nn.Module):
         # The left padding required for cached mode is the maximum of the kernel size
         # and the specified left padding for the convolution.
         padding_l_cached = max(padded_kernel_size, padding_l)
-        # if padding_r == 0:
-        #     assert causal, "The convolution is causal, please set causal=True"
 
         self.padded_kernel_size = padded_kernel_size
         self.padding_l = padding_l
@@ -258,12 +280,18 @@ class Conv1dGeneral(nn.Module):
         in cached mode since the output number of samples can be different than the
         input number of samples, so this would typically only be used in cached mode.
         """
+        if not self.is_cached():
+            log.warning("`get_delay_samples()` is ill-defined when not in cached mode "
+                        "since the output number of samples can be different than the "
+                        "input number of samples.")
         return self.padding_r
 
     def prepare_for_inference(self) -> None:
         """
         Prepares the convolution for inference by disabling debug mode and ensuring the
-        convolution is in cached mode.
+        convolution is in cached mode. This method is not exported to TorchScript and
+        should be called before converting a model to TorchScript since this implies
+        it is going to be used for inference.
         """
         if not self.is_cached():
             log.info(f"Converting Conv1dGeneral to cached in prepare_for_inference()")

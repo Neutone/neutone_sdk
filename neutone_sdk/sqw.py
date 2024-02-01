@@ -131,58 +131,62 @@ class SampleQueueWrapper(nn.Module):
         return native_buffer_sizes[min_idx]
 
     @staticmethod
-    def _calc_saturation_n_case_3(io_bs: int, model_bs: int) -> int:
-        # TODO(cm): I cannot figure out an elegant formula for this specific case, but I'm sure it must exist
-        # TODO(cm): this needs to be explained with a diagram / blog post
-        io_bs_t = tr.tensor(io_bs)
-        model_bs_t = tr.tensor(model_bs)
-        lcm_t = tr.lcm(io_bs_t, model_bs_t)
-        cycle_len = int(
-            tr.div(lcm_t, io_bs_t, rounding_mode="trunc").item()
-        )  # TorchScript requires this casting
-        remainders_shifted = (
-            tr.arange(0, cycle_len, dtype=tr.int) * io_bs_t
-        ) % model_bs_t
-        remainders = (tr.arange(1, cycle_len + 1, dtype=tr.int) * io_bs_t) % model_bs_t
-        pop_locs = tr.where(remainders > remainders_shifted, 0, 1)
-        pop_locs_rev = tr.flip(pop_locs, dims=(0,))
-        pop_locs_cumsum = tr.cumsum(pop_locs, dim=0)
-        pop_locs_rev_cumsum = tr.cumsum(pop_locs_rev, dim=0)
-        offset = 0
-        for _ in range(cycle_len):
-            pop_locs_rev_cumsum_shifted = tr.zeros_like(pop_locs_rev_cumsum)
-            pop_locs_rev_cumsum_shifted[offset:] = pop_locs_rev_cumsum[
-                0 : cycle_len - offset
-            ]
-            if tr.all(pop_locs_cumsum >= pop_locs_rev_cumsum_shifted):
-                break
-            offset += 1
-        return (offset + 1) * io_bs
+    def _calc_saturation_n_case_3_and_4(io_bs: int, model_bs: int) -> int:
+        """
+        Calculates the saturation n for cases where `io_bs` < `model_bs` or
+        `io_bs` > `model_bs` and `io_bs` and `model_bs` do not divide evenly into one
+        another. These are the most complicated cases and each line is annotated with
+        the intermediate outputs for an example where `io_bs` = 4 and `model_bs` = 7.
+
+        Relevant paper: "Callback Adaptation Techniques" by Stéphane Letz
+        (https://hal.science/hal-02158912v1/file/CallbackAdaptation.pdf)
+        """
+        io_bs_t = tr.tensor(io_bs)  # io_bs_t: tensor(4)
+        model_bs_t = tr.tensor(model_bs)  # model_bs_t: tensor(7)
+        # Find the LCM of the two buffer sizes
+        lcm = tr.lcm(io_bs_t, model_bs_t).item()  # lcm_t: tensor(28)
+        # Calculate the remainder samples in the input queue for each step of one cycle.
+        # A cycle has a length equal to the number of times we need to push `io_bs`
+        # samples onto the input queue and pop `model_bs` samples from the input queue
+        # (if possible) such that the input queue will be empty again. Cycle length is
+        # just LCM / `io_bs`.
+        # remainders: tensor([0, 4, 1, 5, 2, 6, 3])
+        remainders = tr.arange(0, lcm, io_bs) % model_bs
+        # The maximum remainder is the most important since it represents the largest
+        # amount the two queues can be out of sync from each other
+        max_remainder = remainders.max()  # max_remainder: tensor(6)
+        # Calculate how many `io_bs` buffers are needed to cover the maximum remainder
+        # n_io_bufs_in_max_remainder: 2
+        n_io_bufs_in_max_remainder = tr.ceil(max_remainder / io_bs).int().item()
+        # Calculate the saturation n
+        # saturation_n: 12
+        saturation_n = io_bs + (n_io_bufs_in_max_remainder * io_bs)
+        return saturation_n
 
     @staticmethod
     def calc_saturation_n(io_bs: int, model_bs: int) -> int:
         """
-        Assume you have 2 queues. Every time `io_bs` samples are pushed onto queue 1, the same number of samples must be
-        popped from queue 2. Whenever queue 1 contains `model_bs` samples or more, they are popped from queue 1 and
-        pushed onto queue 2. This happens instantaneously after pushing to queue 1 and before popping from queue 2.
-        A simple non-trivial example is when `io_bs` = 4 and `model_bs` = 7 (saturation_n is 12 not 8 in this case).
+        Assume you have 2 queues (the input queue and the output queue). Every time
+        `io_bs` samples are pushed onto the input queue, the same number of samples must
+        be popped from the output queue. Whenever the input queue contains `model_bs`
+        samples or more, they are popped from the input queue and pushed onto the output
+        queue. This happens instantaneously after pushing to the input queue and before
+        popping from the output queue. A simple non-trivial example is when `io_bs` = 4
+        and `model_bs` = 7 (saturation_n is 12 not 8 in this case).
 
-        This method calculates the minimum number of samples one must wait before popping from queue 2 to guarantee
-        that it will never be starved (i.e. you cannot pop `io_bs` samples from queue 2). We call this `saturation_n`
-        and it will always be a multiple of `io_bs` (since the best case scenario is you can pop immediately after the
-        first buffer is pushed onto queue 1).
+        This method calculates the minimum number of samples one must wait before
+        popping from the output queue to guarantee that it will never be starved (i.e.
+        you cannot pop `io_bs` samples from the output queue). We call this
+        `saturation_n` and it will always be a multiple of `io_bs` (since the best case
+        scenario is you can pop immediately after the first buffer is pushed onto the
+        input queue).
         """
-        # TODO(cm): document logic behind this
         if model_bs % io_bs == 0:  # Case 1
             return model_bs
         if io_bs % model_bs == 0:  # Case 2
             return io_bs
-        if io_bs < model_bs:  # Case 3
-            return SampleQueueWrapper._calc_saturation_n_case_3(io_bs, model_bs)
-        else:  # io_bs > model_bs, Case 4
-            multiplier = io_bs // model_bs
-            n = (multiplier * model_bs) + (io_bs % model_bs)
-            return (n // io_bs + 1) * io_bs
+        # Cases 3 and 4 (`io_bs` < `model_bs` or `io_bs` > `model_bs`)
+        return SampleQueueWrapper._calc_saturation_n_case_3_and_4(io_bs, model_bs)
 
     @staticmethod
     def calc_delay_samples(io_bs: int, model_bs: int) -> int:

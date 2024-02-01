@@ -145,10 +145,11 @@ class SampleQueueWrapper(nn.Module):
         model_bs_t = tr.tensor(model_bs)  # model_bs_t: tensor(7)
         # Find the LCM of the two buffer sizes
         lcm = tr.lcm(io_bs_t, model_bs_t).item()  # lcm_t: tensor(28)
-        # Calculate the remainder samples in queue 1 for each step of one cycle.
+        # Calculate the remainder samples in the input queue for each step of one cycle.
         # A cycle has a length equal to the number of times we need to push `io_bs`
-        # samples onto queue 1 and pop `model_bs` samples from queue 1 (if possible)
-        # such that queue 1 will be empty again. Cycle length is just LCM / `io_bs`.
+        # samples onto the input queue and pop `model_bs` samples from the input queue
+        # (if possible) such that the input queue will be empty again. Cycle length is
+        # just LCM / `io_bs`.
         # remainders: tensor([0, 4, 1, 5, 2, 6, 3])
         remainders = tr.arange(0, lcm, io_bs) % model_bs
         # The maximum remainder is the most important since it represents the largest
@@ -165,15 +166,20 @@ class SampleQueueWrapper(nn.Module):
     @staticmethod
     def calc_saturation_n(io_bs: int, model_bs: int) -> int:
         """
-        Assume you have 2 queues. Every time `io_bs` samples are pushed onto queue 1, the same number of samples must be
-        popped from queue 2. Whenever queue 1 contains `model_bs` samples or more, they are popped from queue 1 and
-        pushed onto queue 2. This happens instantaneously after pushing to queue 1 and before popping from queue 2.
-        A simple non-trivial example is when `io_bs` = 4 and `model_bs` = 7 (saturation_n is 12 not 8 in this case).
+        Assume you have 2 queues (the input queue and the output queue). Every time
+        `io_bs` samples are pushed onto the input queue, the same number of samples must
+        be popped from the output queue. Whenever the input queue contains `model_bs`
+        samples or more, they are popped from the input queue and pushed onto the output
+        queue. This happens instantaneously after pushing to the input queue and before
+        popping from the output queue. A simple non-trivial example is when `io_bs` = 4
+        and `model_bs` = 7 (saturation_n is 12 not 8 in this case).
 
-        This method calculates the minimum number of samples one must wait before popping from queue 2 to guarantee
-        that it will never be starved (i.e. you cannot pop `io_bs` samples from queue 2). We call this `saturation_n`
-        and it will always be a multiple of `io_bs` (since the best case scenario is you can pop immediately after the
-        first buffer is pushed onto queue 1).
+        This method calculates the minimum number of samples one must wait before
+        popping from the output queue to guarantee that it will never be starved (i.e.
+        you cannot pop `io_bs` samples from the output queue). We call this
+        `saturation_n` and it will always be a multiple of `io_bs` (since the best case
+        scenario is you can pop immediately after the first buffer is pushed onto the
+        input queue).
         """
         if model_bs % io_bs == 0:  # Case 1
             return model_bs

@@ -1,4 +1,4 @@
 SDK_VERSION = "0.1.1"
 
 MAX_N_PARAMS = 4
-SUPPORTED_TOKENIZATIONS = ["MIDILike", "TSD", "REMI", "HVO", "Custom"]
+SUPPORTED_TOKENIZATIONS = ["MIDILike", "TSD", "REMI", "HVO", "HVO_taps", "Custom"]

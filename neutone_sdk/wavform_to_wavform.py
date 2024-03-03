@@ -77,7 +77,7 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         return constants.MAX_N_PARAMS
 
-    def _create_default_params_values(self) -> Tensor:
+    def _create_default_param_values(self) -> Tensor:
         """
         Creates the default parameter values tensor, which must be 1-dimensional.
         For WaveformToWaveform models, there are always self.MAX_N_PARAMS number of

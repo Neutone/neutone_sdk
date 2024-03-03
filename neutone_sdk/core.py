@@ -77,7 +77,7 @@ class NeutoneModel(ABC, nn.Module):
         }
 
         # Allocate default params buffer to prevent dynamic allocations later
-        default_param_values = self._create_default_params_values()
+        default_param_values = self._create_default_param_values()
         assert default_param_values.ndim == 1, (
             "Default parameter values tensor must be 1-dimensional, but got "
             f"{default_param_values.ndim}-dimensional tensor."
@@ -124,7 +124,7 @@ class NeutoneModel(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def _create_default_params_values(self) -> Tensor:
+    def _create_default_param_values(self) -> Tensor:
         """
         Creates the default parameter values tensor, which must be 1-dimensional.
         This should not be overwritten by SDK users.

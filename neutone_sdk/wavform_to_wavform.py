@@ -1,12 +1,16 @@
 import logging
 from abc import abstractmethod
-from typing import NamedTuple, Dict, List, Optional
+from typing import NamedTuple, Dict, List, Optional, Tuple, Union
 
 import torch as tr
 from torch import Tensor, nn
 
-from neutone_sdk import NeutoneModel, constants, NeutoneParameterType, \
-    KnobNeutoneParameter
+from neutone_sdk import (
+    NeutoneModel,
+    constants,
+    NeutoneParameterType,
+    KnobNeutoneParameter,
+)
 from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.utils import validate_waveform
 
@@ -62,7 +66,10 @@ class WaveformToWaveformBase(NeutoneModel):
         # TODO(cm): remove once plugin metadata parsing is implemented
         for idx in range(self.n_neutone_parameters, self.MAX_N_PARAMS):
             tmp_p = KnobNeutoneParameter(
-                name="", description="", default_value=0.0, used=False,
+                name="",
+                description="",
+                default_value=0.0,
+                used=False,
             )
             self.neutone_parameters_metadata[f"p{idx + 1}"] = tmp_p.to_metadata_dict()
             self.neutone_parameter_names.append(tmp_p.name)
@@ -77,19 +84,29 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         return constants.MAX_N_PARAMS
 
-    def _create_default_param_values(self) -> Tensor:
+    def _get_numerical_default_param_values(
+        self,
+    ) -> List[Tuple[str, Union[float, int]]]:
         """
-        Creates the default parameter values tensor, which must be 1-dimensional.
+        Returns a list of tuples containing the name and default value of each
+        numerical (float or int) parameter.
         For WaveformToWaveform models, there are always self.MAX_N_PARAMS number of
-        default parameter values, no matter how many Neutone parameters have been
+        numerical default parameter values, no matter how many parameters have been
         defined. This is to prevent empty tensors in some of the internal piping
         and queues when the model has no parameters.
         This should not be overwritten by SDK users.
         """
-        default_param_values = tr.zeros(self.MAX_N_PARAMS)
-        for idx, p in enumerate(self.get_neutone_parameters()):
-            default_param_values[idx] = p.default_value
-        return default_param_values
+        result = []
+        for p in self.get_neutone_parameters():
+            result.append((p.name, p.default_value))
+        if len(result) < self.MAX_N_PARAMS:
+            result.extend(
+                [
+                    (f"p{idx + 1}", 0.0)
+                    for idx in range(len(result), self.MAX_N_PARAMS)
+                ]
+            )
+        return result
 
     @abstractmethod
     def is_input_mono(self) -> bool:

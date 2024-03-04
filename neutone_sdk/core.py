@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import NamedTuple, Dict, List
+from typing import NamedTuple, Dict, List, Tuple, Union
 
 import torch as tr
 from torch import nn, Tensor
@@ -77,27 +77,19 @@ class NeutoneModel(ABC, nn.Module):
         }
 
         # Allocate default params buffer to prevent dynamic allocations later
-        default_param_values = self._create_default_param_values()
-        assert default_param_values.ndim == 1, (
-            "Default parameter values tensor must be 1-dimensional, but got "
-            f"{default_param_values.ndim}-dimensional tensor."
-        )
-        assert default_param_values.size(0) >= self.n_neutone_parameters, (
-            "Default parameter values tensor must have at least as many elements as "
-            "the number of parameters specified in the `get_neutone_parameters()` "
-            "method."
-        )
-        assert default_param_values.size(0) <= self.MAX_N_PARAMS, (
-            f"Number of default parameter values ({default_param_values.size(0)}) "
+        numerical_default_param_vals = self._get_numerical_default_param_values()
+        default_param_values_t = tr.tensor([v for _, v in numerical_default_param_vals])
+        assert default_param_values_t.size(0) <= self.MAX_N_PARAMS, (
+            f"Number of default parameter values ({default_param_values_t.size(0)}) "
             f"exceeds the maximum allowed ({self.MAX_N_PARAMS})."
         )
-        default_param_values = default_param_values.unsqueeze(-1)
+        default_param_values = default_param_values_t.unsqueeze(-1)
         self.register_buffer("default_param_values", default_param_values)
 
         # Allocate remapped params dictionary to prevent dynamic allocations later
         self.remapped_params = {
-            p.name: default_param_values[idx]
-            for idx, p in enumerate(self.get_neutone_parameters())
+            name: tr.tensor([val])
+            for name, val in numerical_default_param_vals
         }
 
         # Save parameter information
@@ -124,9 +116,12 @@ class NeutoneModel(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def _create_default_param_values(self) -> Tensor:
+    def _get_numerical_default_param_values(
+        self,
+    ) -> List[Tuple[str, Union[float, int]]]:
         """
-        Creates the default parameter values tensor, which must be 1-dimensional.
+        Returns a list of tuples containing the name and default value of each
+        numerical (float or int) parameter.
         This should not be overwritten by SDK users.
         """
         pass

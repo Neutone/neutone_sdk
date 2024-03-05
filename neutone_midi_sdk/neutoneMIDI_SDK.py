@@ -1,13 +1,17 @@
-import torch
-from typing import List, Dict, Optional
 from abc import abstractmethod
-from neutone_midi_sdk import NeutoneMIDIModel, convert_midi_to_tokens, convert_tokens_to_midi, TokenData
+from typing import Dict, List, Optional, Tuple, Union
 
+import torch as tr
+
+from neutone_midi_sdk import (ContinuousNeutoneParameter, NeutoneMIDIModel,
+                              NeutoneParameterType)
+from neutone_midi_sdk.tokenization import (TokenData, convert_midi_to_tokens,
+                                           convert_tokens_to_midi)
 
 
 class MidiToMidiBase(NeutoneMIDIModel):
     def __init__(self,
-                 model: torch.nn.Module,
+                 model: tr.nn.Module,
                  vocab: Dict[str, int],
                  tokenizer_type: str,
                  tokenizer_data: TokenData,
@@ -15,13 +19,37 @@ class MidiToMidiBase(NeutoneMIDIModel):
         super().__init__(model, vocab, tokenizer_type, tokenizer_data)
         self.add_dimension = add_dimension
 
+        # TODO(nic): relax this constraint, allow tensor parameters
+        assert all(
+            p.type == NeutoneParameterType.CONTINUOUS
+            for p in self.get_neutone_parameters()
+        ), (
+            "Only continuous type parameters are supported in MidiToMidiBase models. "
+            "models."
+        )
+
+        # For compatibility with the current plugin, we fill in missing params
+        # TODO(nic): remove once plugin metadata parsing is implemented
+        for idx in range(self.n_neutone_parameters, self.MAX_N_PARAMS):
+            unused_p = ContinuousNeutoneParameter(
+                name="",
+                description="",
+                default_value=0.0,
+                used=False,
+            )
+            self.neutone_parameters_metadata[f"p{idx+1}"] = unused_p.to_metadata_dict()
+            self.neutone_parameter_names.append(unused_p.name)
+            self.neutone_parameter_descriptions.append(unused_p.description)
+            self.neutone_parameter_types.append(unused_p.type.value)
+            self.neutone_parameter_used.append(unused_p.used)
+
 
 
     def prepare_for_inference(self) -> None:
         super().prepare_for_inference()
 
     @abstractmethod
-    def do_forward_pass(self, tokenized_data: torch.Tensor, params: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def do_forward_pass(self, tokenized_data: tr.Tensor, params: Dict[str, tr.Tensor]) -> tr.Tensor:
         """
         SDK users can overwrite this method to implement the logic of their models.
         The input is a tensor of data that has been tokenized according to the tokenization settings,
@@ -35,13 +63,13 @@ class MidiToMidiBase(NeutoneMIDIModel):
         """
         pass
 
-    def forward(self, midi_data: torch.Tensor, params: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, midi_data: tr.Tensor, params: Optional[tr.Tensor] = None) -> tr.Tensor:
         #in_n = midi_data.size(1)
         if params is None:
             params = self.get_default_param_values()#.repeat(1, in_n)
-
-        for idx, neutone_param in enumerate(self.get_neutone_parameters()):
-            self.remapped_params[neutone_param.name] = params[idx]
+        
+        for idx in range(self.n_neutone_parameters):
+            self.remapped_params[self.neutone_parameter_names[idx]] = params[idx]
 
         tokenized_data = convert_midi_to_tokens(midi_data=midi_data,
                                                 token_type=self.tokenizer_type,
@@ -50,10 +78,10 @@ class MidiToMidiBase(NeutoneMIDIModel):
 
 
         if self.add_dimension:
-            tokenized_data = torch.unsqueeze(tokenized_data, dim=0)
+            tokenized_data = tr.unsqueeze(tokenized_data, dim=0)
         model_output = self.do_forward_pass(tokenized_data, self.remapped_params)
         if self.add_dimension:
-            model_output = torch.squeeze(model_output, dim=0)
+            model_output = tr.squeeze(model_output, dim=0)
 
         output_midi_data = convert_tokens_to_midi(tokens=model_output,
                                                   token_type=self.tokenizer_type,
@@ -61,6 +89,30 @@ class MidiToMidiBase(NeutoneMIDIModel):
                                                   tokenizer_data=self.tokenizer_data)
 
         return output_midi_data
+    
+    def _get_numerical_default_param_values(
+        self,
+    ) -> List[Tuple[str, Union[float, int]]]:
+        """
+        Returns a list of tuples containing the name and default value of each
+        numerical (float or int) parameter.
+        For MidiToMidi models, there are always self.MAX_N_PARAMS number of
+        numerical default parameter values, no matter how many parameters have been
+        defined. This is to prevent empty tensors in some of the internal piping
+        and queues when the model has no parameters.
+        This should not be overwritten by SDK users.
+        """
+        result = []
+        for p in self.get_neutone_parameters():
+            result.append((p.name, p.default_value))
+        if len(result) < self.MAX_N_PARAMS:
+            result.extend(
+                [
+                    (f"p{idx + 1}", 0.0)
+                    for idx in range(len(result), self.MAX_N_PARAMS)
+                ]
+            )
+        return result
 
 
 def generate_fake_token_data():

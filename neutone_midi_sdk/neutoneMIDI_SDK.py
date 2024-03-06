@@ -64,8 +64,9 @@ class MidiToMidiBase(NeutoneMIDIModel):
         pass
 
     def forward(self, midi_data: tr.Tensor, params: Optional[tr.Tensor] = None) -> tr.Tensor:
-        #in_n = midi_data.size(1)
+        
         if params is None:
+            # This codepath should never be reached, as the plugin always sends parameters.
             params = self.get_default_param_values()#.repeat(1, in_n)
         
         for idx in range(self.n_neutone_parameters):
@@ -104,7 +105,8 @@ class MidiToMidiBase(NeutoneMIDIModel):
         """
         result = []
         for p in self.get_neutone_parameters():
-            result.append((p.name, p.default_value))
+            if p.type == NeutoneParameterType.CONTINUOUS:
+                result.append((p.name, p.default_value))
         if len(result) < self.MAX_N_PARAMS:
             result.extend(
                 [
@@ -113,7 +115,20 @@ class MidiToMidiBase(NeutoneMIDIModel):
                 ]
             )
         return result
-
+    
+    def _get_tensor_default_param_values(
+        self,
+    ) -> List[Tuple[str, Union[tr.Tensor]]]:
+        """
+        Returns a list of tuples containing the name and default value of each
+        tensor parameter.
+        This should not be overwritten by SDK users.
+        """
+        result = []
+        for p in self.get_neutone_parameters():
+            if p.type == NeutoneParameterType.TENSOR:
+                result.append((p.name, p.default_tensor))
+        return result
 
 def generate_fake_token_data():
     token_strings: Dict[str, List[str]] = {"value": ["value"]}

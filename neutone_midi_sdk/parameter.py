@@ -112,35 +112,27 @@ class ContinuousNeutoneParameter(NeutoneParameter):
             0.0 <= default_value <= 1.0
         ), "`default_value` for continuous params must be between 0 and 1"
 
+class TensorNeutoneParameter(NeutoneParameter):
+    """
+    Defines a tensor Neutone Parameter that the user can use to control a model.
+    """
+    def __init__(self,
+                 name: str,
+                 description: str,
+                 shape: List[int],
+                 default_tensor: Optional[torch.Tensor] = None,
+                 used: bool = True):
+        super().__init__(name, description, used)
+        self.shape = shape
+        self.default_tensor = default_tensor
+        self.type = NeutoneParameterType.TENSOR
 
-
-
-
-
-
-
-    
-# class TensorNeutoneParameter(NeutoneParameter):
-#     """
-#     Defines a tensor Neutone Parameter that the user can use to control a model.
-#     """
-#     def __init__(self,
-#                  name: str,
-#                  description: str,
-#                  shape: List[int],
-#                  default_tensor: Optional[torch.Tensor] = None,
-#                  used: bool = True):
-#         super().__init__(name, description, used)
-#         self.shape = shape
-#         self.default_tensor = default_tensor
-#         self.type = NeutoneParameterType.TENSOR
-
-#     def to_metadata_dict(self) -> Dict[str, str]:
-#         """Returns a string dictionary containing the metadata of the parameter."""
-#         data = super().to_metadata_dict()
-#         data["shape"] = str(self.shape)
-#         data["default_tensor"] = str(self.default_tensor.numpy())
-#         return data
+    def to_metadata_dict(self) -> Dict[str, str]:
+        """Returns a string dictionary containing the metadata of the parameter."""
+        data = super().to_metadata_dict()
+        data["shape"] = str(self.shape)
+        data["default_tensor"] = str(self.default_tensor.numpy())
+        return data
 
 
 

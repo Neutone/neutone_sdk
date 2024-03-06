@@ -35,11 +35,18 @@ class NeutoneMIDIModel(tr.nn.Module):
 
         # Allocate default params buffer to prevent dynamic allocations later
         numerical_default_param_vals = self._get_numerical_default_param_values()
+        tensor_default_param_vals = self._get_tensor_default_param_values()
+
         default_param_values_t = tr.tensor([v for _, v in numerical_default_param_vals])
-        assert default_param_values_t.size(0) <= self.MAX_N_PARAMS, (
-            f"Number of default parameter values ({default_param_values_t.size(0)}) "
+        default_param_values_t.extend([v for _, v in tensor_default_param_vals])
+
+        assert len(numerical_default_param_vals) <= self.MAX_N_PARAMS, (
+            f"Number of default parameter values ({len(numerical_default_param_vals)}) "
             f"exceeds the maximum allowed ({self.MAX_N_PARAMS})."
         )
+        # TODO(nic): we may need a check on the number of tensor params here depending
+        # on how we handle them in the plugin
+
         default_param_values = default_param_values_t.unsqueeze(-1)
         self.register_buffer("default_param_values", default_param_values)
 
@@ -48,10 +55,16 @@ class NeutoneMIDIModel(tr.nn.Module):
             name: tr.tensor([val])
             for name, val in numerical_default_param_vals
         }
+        self.remapped_params.update(
+            {
+                name: val
+                for name, val in tensor_default_param_vals
+            }
+        )
 
         # Save parameter information
         self.neutone_parameter_names = [p.name for p in self.get_neutone_parameters()]
-        # TODO(cm): remove from here once plugin metadata parsing is implemented
+        # TODO(nic): remove from here once plugin metadata parsing is implemented
         self.neutone_parameter_descriptions = [
             p.description for p in self.get_neutone_parameters()
         ]
@@ -111,6 +124,17 @@ class NeutoneMIDIModel(tr.nn.Module):
         """
         Returns a list of tuples containing the name and default value of each
         numerical (float or int) parameter.
+        This should not be overwritten by SDK users.
+        """
+        pass
+
+    @abstractmethod
+    def _get_tensor_default_param_values(
+        self,
+    ) -> List[Tuple[str, Union[float, int]]]:
+        """
+        Returns a list of tuples containing the name and default value of each
+        tensor parameter.
         This should not be overwritten by SDK users.
         """
         pass

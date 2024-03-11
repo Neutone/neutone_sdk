@@ -19,18 +19,16 @@ class MidiToMidiBase(NeutoneMIDIModel):
         super().__init__(model, vocab, tokenizer_type, tokenizer_data)
         self.add_dimension = add_dimension
 
-        # TODO(nic): relax this constraint, allow tensor parameters
         assert all(
-            p.type == NeutoneParameterType.CONTINUOUS
+            p.type == NeutoneParameterType.CONTINUOUS or p.type == NeutoneParameterType.TENSOR
             for p in self.get_neutone_parameters()
         ), (
-            "Only continuous type parameters are supported in MidiToMidiBase models. "
-            "models."
+            "Only continuous or tensor type parameters are supported in MidiToMidiBase models. "
         )
 
         # For compatibility with the current plugin, we fill in missing params
         # TODO(nic): remove once plugin metadata parsing is implemented
-        for idx in range(self.n_neutone_parameters, self.MAX_N_PARAMS):
+        for idx in range(self.n_neutone_parameters, self.MAX_N_NUMERICAL_PARAMS):
             unused_p = ContinuousNeutoneParameter(
                 name="",
                 description="",
@@ -42,8 +40,6 @@ class MidiToMidiBase(NeutoneMIDIModel):
             self.neutone_parameter_descriptions.append(unused_p.description)
             self.neutone_parameter_types.append(unused_p.type.value)
             self.neutone_parameter_used.append(unused_p.used)
-
-
 
     def prepare_for_inference(self) -> None:
         super().prepare_for_inference()
@@ -63,14 +59,26 @@ class MidiToMidiBase(NeutoneMIDIModel):
         """
         pass
 
-    def forward(self, midi_data: tr.Tensor, params: Optional[tr.Tensor] = None) -> tr.Tensor:
+    def forward(self, midi_data: tr.Tensor, params: Optional[Dict[str, tr.Tensor]] = None) -> tr.Tensor:
         
         if params is None:
-            # This codepath should never be reached, as the plugin always sends parameters.
-            params = self.get_default_param_values()#.repeat(1, in_n)
-        
-        for idx in range(self.n_neutone_parameters):
-            self.remapped_params[self.neutone_parameter_names[idx]] = params[idx]
+            # This codepath should never be reached, as the plugin always sends parameters. 
+            params = self.get_default_param_values()
+
+        for n in self.neutone_parameter_names:
+            if n not in params:
+                raise ValueError(f"Parameter {n} not found in input parameters.")
+            self.remapped_params[n] = params[n]
+
+        for p in self.neutone_parameters_metadata.keys():
+            if self.neutone_parameters_metadata[p]["type"] == NeutoneParameterType.TENSOR.value and \
+              self.neutone_parameters_metadata[p]["tokenize"] == str(True):
+                name = self.neutone_parameters_metadata[p]["name"]
+                # TODO: change this to token_type=self.tokenizer_type once deprecating HVO_taps
+                self.remapped_params[name] = convert_midi_to_tokens(midi_data=params[name],
+                                                        token_type="HVO",
+                                                        midi_to_token_vocab=self.midi_to_token_vocab,
+                                                        tokenizer_data=self.tokenizer_data)
 
         tokenized_data = convert_midi_to_tokens(midi_data=midi_data,
                                                 token_type=self.tokenizer_type,
@@ -97,7 +105,7 @@ class MidiToMidiBase(NeutoneMIDIModel):
         """
         Returns a list of tuples containing the name and default value of each
         numerical (float or int) parameter.
-        For MidiToMidi models, there are always self.MAX_N_PARAMS number of
+        For MidiToMidi models, there are always self.MAX_N_NUMERICAL_PARAMS number of
         numerical default parameter values, no matter how many parameters have been
         defined. This is to prevent empty tensors in some of the internal piping
         and queues when the model has no parameters.
@@ -107,11 +115,11 @@ class MidiToMidiBase(NeutoneMIDIModel):
         for p in self.get_neutone_parameters():
             if p.type == NeutoneParameterType.CONTINUOUS:
                 result.append((p.name, p.default_value))
-        if len(result) < self.MAX_N_PARAMS:
+        if len(result) < self.MAX_N_NUMERICAL_PARAMS:
             result.extend(
                 [
                     (f"p{idx + 1}", 0.0)
-                    for idx in range(len(result), self.MAX_N_PARAMS)
+                    for idx in range(len(result), self.MAX_N_NUMERICAL_PARAMS)
                 ]
             )
         return result
@@ -127,7 +135,7 @@ class MidiToMidiBase(NeutoneMIDIModel):
         result = []
         for p in self.get_neutone_parameters():
             if p.type == NeutoneParameterType.TENSOR:
-                result.append((p.name, p.default_tensor))
+                result.append((p.name, p.default_value))
         return result
 
 def generate_fake_token_data():

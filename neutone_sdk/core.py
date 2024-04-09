@@ -54,6 +54,11 @@ class NeutoneModel(ABC, nn.Module):
         work).
         """
         super().__init__()
+
+        # Save and prepare model
+        model.eval()
+        self.model = model
+
         self.MAX_N_PARAMS = self._get_max_n_params()
         self.SDK_VERSION = constants.SDK_VERSION
         self.CURRENT_TIME = time.time()
@@ -102,10 +107,6 @@ class NeutoneModel(ABC, nn.Module):
         self.neutone_parameter_types = [
             p.type.value for p in self.get_neutone_parameters()
         ]
-
-        # Save and prepare model
-        model.eval()
-        self.model = model
 
     @abstractmethod
     def _get_max_n_params(self) -> int:

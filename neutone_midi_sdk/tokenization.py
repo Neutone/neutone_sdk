@@ -56,6 +56,9 @@ def convert_tokens_to_midi(tokens: torch.Tensor,
 
     if token_type == "HVO":
         return convert_hvo_to_midi(tokens)
+    
+    if token_type == "HVO_taps":
+        return convert_hvo_to_midi(tokens)
 
     else:
         return torch.zeros((2, 2))

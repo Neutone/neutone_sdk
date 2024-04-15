@@ -48,7 +48,7 @@ class NeutoneMIDIModel(tr.nn.Module):
 
         # Save parameter metadata
         self.neutone_parameters_metadata = {
-            f"p{idx + 1}": p.to_metadata_dict()
+            p.name: p.to_metadata_dict()
             for idx, p in enumerate(self.get_neutone_parameters())
         }
 

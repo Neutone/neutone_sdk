@@ -73,36 +73,6 @@ class NeutoneMIDIModel(tr.nn.Module):
             p.type.value for p in self.get_neutone_parameters()
         ]
 
-        ####################################
-        # Old constructor
-        # TODO(nic): remove when migrating to main Neutone core infra
-
-        # parameters
-        # neutone_parameters = self.get_neutone_parameters() # now handled by _get_numerical_default_param_values()
-        # if len(neutone_parameters) < self.MAX_N_PARAMS:    # now handled in MidiToMidiBase 
-        #     neutone_parameters += [
-        #                               NeutoneParameter(
-        #                                   name="",
-        #                                   description="",
-        #                                   used=False,
-        #                                   default_value=0.0,
-        #                               )
-        #                            ] * (self.MAX_N_PARAMS - len(neutone_parameters))
-
-        # default_param_values = tr.tensor(               # now handled in default_param_values_t
-        #     [
-        #         neutone_parameter.default_value
-        #         for neutone_parameter in neutone_parameters
-        #     ]
-        # ).unsqueeze(-1)
-        # self.register_buffer("default_param_values", default_param_values)
-        # self.remapped_params = {
-        #     neutone_param.name: default_param_values[idx]
-        #     for idx, neutone_param in enumerate(self.get_neutone_parameters())
-        # }
-
-        ####################################
-
         # instantiate model
         model.eval()
         self.model = model

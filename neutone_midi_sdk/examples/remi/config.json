@@ -1,0 +1,37 @@
+{
+    "pitch_range": [
+        21,
+        109
+    ],
+    "beat_res": {
+        "0_16": 4,
+        "16_24": 2
+    },
+    "_nb_velocities": 32,
+    "additional_tokens": {
+        "Chord": false,
+        "Rest": false,
+        "Tempo": false,
+        "Program": false,
+        "TimeSignature": false,
+        "rest_range": [
+            2,
+            8
+        ],
+        "nb_tempos": 32,
+        "tempo_range": [
+            40,
+            250
+        ]
+    },
+    "special_tokens": [
+        "PAD",
+        "BOS",
+        "EOS",
+        "MASK"
+    ],
+    "unique_track": false,
+    "has_bpe": false,
+    "tokenization": "REMI",
+    "miditok_version": "2.0.3"
+}

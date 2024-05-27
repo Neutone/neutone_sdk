@@ -55,7 +55,8 @@ class NeutoneModel(ABC, nn.Module):
         """
         super().__init__()
 
-        # Save and prepare model
+        # Save and prepare model. This should be done at the very beginning of the
+        # constructor to enable accessing the model in other methods of this class.
         model.eval()
         self.model = model
 

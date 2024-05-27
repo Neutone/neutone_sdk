@@ -67,6 +67,7 @@ def save_neutone_model(
     freeze: bool = False,
     optimize: bool = False,
     speed_benchmark: bool = True,
+    test_offline_mode: bool = True,
 ) -> None:
     """
     Save a Neutone model to disk as a Torchscript file. Additionally include metadata file and samples as needed.
@@ -86,6 +87,7 @@ def save_neutone_model(
         optimize: If true, jit.optimize_for_inference will be applied to the model.
         speed_benchmark: If true, will run a speed benchmark when submission is also true.
                 Consider disabling for non-realtime models as it might take too long.
+        test_offline_mode: If true, will run an offline mode test. Must be true if submission is true.
 
     Returns:
       Will create the following files:
@@ -96,6 +98,12 @@ def save_neutone_model(
         root_dir/samples/*
       ```
     """
+    if submission:
+        assert dump_samples, "If submission is True then dump_samples must also be True"
+        assert (
+            test_offline_mode
+        ), "If submission is True then test_offline_mode must also be True"
+
     random.seed(0)
     tr.manual_seed(0)
     if not model.use_debug_mode:
@@ -131,19 +139,23 @@ def save_neutone_model(
         with open(root_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=4)
 
-        log.info("Running model on audio samples...")
-        if audio_sample_pairs is None:
-            input_samples = get_default_audio_samples()
-            audio_sample_pairs = []
-            for input_sample in input_samples:
-                rendered_sample = render_audio_sample(sqw, input_sample)
-                audio_sample_pairs.append(
-                    AudioSamplePair(input_sample, rendered_sample)
-                )
+        if dump_samples:
+            log.info("Running model on audio samples...")
+            if audio_sample_pairs is None:
+                input_samples = get_default_audio_samples()
+                audio_sample_pairs = []
+                for input_sample in input_samples:
+                    rendered_sample = render_audio_sample(sqw, input_sample)
+                    audio_sample_pairs.append(
+                        AudioSamplePair(input_sample, rendered_sample)
+                    )
 
-        metadata["sample_sound_files"] = [
-            pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
-        ]
+            metadata["sample_sound_files"] = [
+                pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
+            ]
+        else:
+            metadata["sample_sound_files"] = []
+
         log.info("Validating metadata...")
         validate_metadata(metadata)
         extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
@@ -165,14 +177,17 @@ def save_neutone_model(
         loaded_model.reset()
         loaded_model.is_resampling()
 
-        log.info("Testing offline mode...")
-        for input_sample in get_default_audio_samples():
-            offline_sr = input_sample.sr
-            offline_bs = 4096
-            loaded_model.set_daw_sample_rate_and_buffer_size(offline_sr, offline_bs)
-            offline_params = tr.rand((MAX_N_PARAMS, input_sample.audio.size(1)))
-            offline_rendered_sample = loaded_model.forward_offline(input_sample.audio, offline_params)
-            break  # Only test one sample to reduce export time
+        if test_offline_mode:
+            log.info("Testing offline mode...")
+            for input_sample in get_default_audio_samples():
+                offline_sr = input_sample.sr
+                offline_bs = 4096
+                loaded_model.set_daw_sample_rate_and_buffer_size(offline_sr, offline_bs)
+                offline_params = tr.rand((MAX_N_PARAMS, input_sample.audio.size(1)))
+                offline_rendered_sample = loaded_model.forward_offline(
+                    input_sample.audio, offline_params
+                )
+                break  # Only test one sample to reduce export time
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")

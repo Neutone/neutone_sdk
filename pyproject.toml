@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "neutone_sdk"
-version = "1.4.3"
+version = "1.5.0"
 description = "SDK for wrapping deep learning models for usage in the Neutone plugin"
 readme = "README.md"
 authors = ["Qosmo <contact@qosmo.jp>"]

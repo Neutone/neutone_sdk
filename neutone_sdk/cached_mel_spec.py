@@ -29,7 +29,9 @@ class CachedMelSpec(nn.Module):
         super().__init__()
         if use_debug_mode:
             assert n_fft % 2 == 0, "n_fft must be even"
-            assert (n_fft // 2) % hop_len == 0, "n_fft // 2 must be divisible by hop_len"
+            assert (
+                n_fft // 2
+            ) % hop_len == 0, "n_fft // 2 must be divisible by hop_len"
             assert hop_len < n_fft, "hop_len must be less than n_fft"
         self.n_ch = n_ch
         self.n_fft = n_fft
@@ -43,18 +45,9 @@ class CachedMelSpec(nn.Module):
             n_mels=n_mels,
             center=False,
         )
-        self.padding = n_fft // 2
-        self.padding_frames = self.padding // hop_len
-        self.cache_ahead = CircularInplaceTensorQueue(
-            n_ch, self.padding, use_debug_mode
-        )
-        self.cache_behind = CircularInplaceTensorQueue(
-            n_ch, self.padding, use_debug_mode
-        )
-        self.register_buffer("padding_ahead", tr.zeros((n_ch, self.padding)))
-        self.register_buffer("padding_behind", tr.zeros((n_ch, self.padding)))
-        self.cache_ahead.push(self.padding_ahead)
-        self.cache_behind.push(self.padding_behind)
+        self.queue = CircularInplaceTensorQueue(n_ch, self.n_fft, use_debug_mode)
+        self.register_buffer("padding", tr.zeros((n_ch, self.n_fft)))
+        self.queue.push(self.padding)
 
     def forward(self, x: Tensor) -> Tensor:
         if self.use_debug_mode:
@@ -64,46 +57,43 @@ class CachedMelSpec(nn.Module):
                 x.size(1) % self.hop_len == 0
             ), "input audio n_samples must be divisible by hop_len"
         n_samples = x.size(1)
-        n_frames = n_samples // self.hop_len + 1
-        lookahead_idx = min(n_samples, self.padding)
-        x = tr.cat([self.padding_ahead, x, self.padding_behind], dim=1)
-        # if lookahead_idx < n_samples:
-        #     x = tr.cat([self.padding_ahead, x, self.padding_behind], dim=1)
-        # else:
-        #     x = tr.cat([self.padding_ahead, self.padding_behind], dim=1)
-        log.info(f"x = {x}")
-        spec = self.mel_spec(x)
+        n_frames = n_samples // self.hop_len
+        lookahead_idx = min(n_samples, self.n_fft)
+        padded_x = tr.cat([self.padding, x], dim=1)
+        # log.info(f"padded_x = {padded_x}")
+        spec = self.mel_spec(padded_x)
         spec = spec[:, :, :n_frames]
-        self.cache_ahead.push(x[:, :lookahead_idx])
-        self.cache_ahead.fill(self.padding_ahead)
-        self.cache_behind.fill(self.padding_behind)
-        self.cache_behind.push(x[:, -lookahead_idx:])
+        self.queue.push(x[:, :lookahead_idx])
+        self.queue.fill(self.padding)
         return spec
 
     @tr.jit.export
     def get_delay_samples(self) -> int:
-        return self.padding
+        return self.n_fft // 2
+
+    @tr.jit.export
+    def get_delay_frames(self) -> int:
+        return self.get_delay_samples() // self.hop_len
 
     @tr.jit.export
     def reset(self) -> None:
-        self.cache_ahead.reset()
-        self.cache_behind.reset()
-        self.padding_left.zero_()
-        self.padding_right.zero_()
-        self.cache_ahead.push(self.padding_ahead)
-        self.cache_behind.push(self.padding_behind)
+        self.queue.reset()
+        self.padding.zero_()
+        self.queue.push(self.padding)
 
 
 def test_cached_mel_spec():
+    tr.random.manual_seed(0)
+
     sr = 44100
     n_ch = 1
-    n_fft = 4
-    hop_len = 1
+    n_fft = 2048
+    hop_len = 128
     n_mels = 1
-    total_n_samples = 7 * hop_len
+    total_n_samples = 100 * hop_len
 
     audio = tr.rand(n_ch, total_n_samples)
-    log.info(f"audio = {audio}")
+    # log.info(f"audio = {audio}")
     mel_spec = MelSpectrogram(
         sample_rate=sr,
         n_fft=n_fft,
@@ -115,28 +105,35 @@ def test_cached_mel_spec():
     cached_mel_spec = CachedMelSpec(sr, n_ch, n_fft, hop_len, n_mels)
 
     spec = mel_spec(audio)
+    delay_frames = cached_mel_spec.get_delay_frames()
     cached_spec = cached_mel_spec(audio)
-    assert tr.allclose(spec, cached_spec)
+    cached_spec = cached_spec[:, :, delay_frames:]
+    assert tr.allclose(spec[:, :, :cached_spec.size(2)], cached_spec)
+    cached_mel_spec.reset()
 
     chunks = []
-    min_chunk_size = hop_len
-    max_chunk_size = 1 * hop_len
+    min_chunk_size = 1
+    max_chunk_size = 10
     curr_idx = 0
     while curr_idx < total_n_samples - max_chunk_size:
-        chunk_size = tr.randint(min_chunk_size, max_chunk_size + 1, (1,)).item()
-        chunks.append(audio[:, curr_idx:curr_idx + chunk_size])
+        chunk_size = (
+            tr.randint(min_chunk_size, max_chunk_size + 1, (1,)).item() * hop_len
+        )
+        chunks.append(audio[:, curr_idx : curr_idx + chunk_size])
         curr_idx += chunk_size
     if curr_idx < total_n_samples:
         chunks.append(audio[:, curr_idx:])
+    chunks.append(tr.zeros(n_ch, cached_mel_spec.n_fft))
 
     spec_chunks = []
     for chunk in chunks:
         spec_chunk = cached_mel_spec(chunk)
         spec_chunks.append(spec_chunk)
-    chunked_spec = tr.cat(spec_chunks, dim=2)
-    log.info(f"        spec = {spec}")
-    log.info(f"chunked_spec = {chunked_spec}")
-    assert tr.allclose(spec, chunked_spec)
+    chunked_mel_spec = tr.cat(spec_chunks, dim=2)
+    chunked_mel_spec = chunked_mel_spec[:, :, delay_frames:]
+    # log.info(f"            spec = {spec}")
+    # log.info(f"chunked_mel_spec = {chunked_mel_spec}")
+    assert tr.allclose(spec, chunked_mel_spec[:, :, : spec.size(2)])
 
 
 if __name__ == "__main__":

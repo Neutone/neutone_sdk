@@ -49,8 +49,8 @@ If you just want to wrap a model without going through a detailed description of
 - An example with a simple convolutional model based on [Randomized Overdrive Neural Networks](https://csteinmetz1.github.io/ronn/) can be found at [examples/example_overdrive-random.py](examples/example_overdrive-random.py).
 - We also have Notebooks for more complicated models showing the entire workflow from training to exporting them using Neutone:
     - [TCN FX Emulation](https://colab.research.google.com/drive/1gHZ-AEoYmfmWrjlKpKkK_SW1xzfxD24-?usp=sharing)
-    - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1yPHU6PRWw1lRWZLUxXimIa6chFQ2JdRW?usp=sharing)
-    - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1qlN6xLvDYrLcAwS8yh2ecmNG_bEKlVI9?usp=sharing)
+    - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1IUuxJ_DhhLHVvMcvbaBPVLRQK53yMOvd)
+    - [RAVE Timbre Transfer](https://colab.research.google.com/drive/1AQOrXtiIFWj_Qh-Br3qfmUKmpzFQgsqj)
     - [NoiseBandNet Audio Reconstruction](https://colab.research.google.com/drive/1KJij2CqhLf7ac6aljMckFL71WJrCNg66?usp=sharing)
     - [GCN FX Emulation](https://github.com/francescopapaleo/neural-audio-spring-reverb/blob/main/notebooks/neutone_GCN_demo.ipynb)
 

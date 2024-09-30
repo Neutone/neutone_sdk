@@ -210,17 +210,4 @@ def validate_metadata(metadata: dict) -> bool:
         AudioSample.from_b64(audio_sample_pair["in"])
         AudioSample.from_b64(audio_sample_pair["out"])
 
-    # We shouldn't have any problems here but as a sanity check
-    for param_metadata in metadata["neutone_parameters"].values():
-        try:
-            if param_metadata["type"] == "knob":
-                assert (
-                    0.0 <= param_metadata["default_value"] <= 1.0
-                ), "Default values for continuous NeutoneParameters should be between 0 and 1"
-        except:
-            log.error(
-                f"Could not convert default_value to float for parameter {param_metadata.name} "
-            )
-            return False
-
     return True

@@ -76,7 +76,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 default_value=0.0,
                 used=False,
             )
-            self.neutone_parameters_metadata[f"p{idx+1}"] = unused_p.to_metadata_dict()
+            self.neutone_parameters_metadata[f"p{idx+1}"] = unused_p.to_metadata()
             self.neutone_parameter_names.append(unused_p.name)
             self.neutone_parameter_descriptions.append(unused_p.description)
             self.neutone_parameter_types.append(unused_p.type.value)

@@ -144,7 +144,9 @@ SCHEMA = {
                 "default_value": {"type": ["integer", "number", "string"]},
                 "used": {"type": "boolean"},
                 "type": {"type": "string", "enum": ["continuous"]},
-                "max_n_chars": {"type": "integer", "minimum": -1},
+                "max_n_chars": {"type": ["null", "integer"], "minimum": -1},
+                "n_values": {"type": ["null", "integer"], "minimum": 2},
+                "labels": {"type": ["null", "array"], "items": {"type": "string"}},
             },
         }
     },

@@ -154,6 +154,7 @@ def save_neutone_model(
             metadata["sample_sound_files"] = [
                 pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
             ]
+            log.info("Finished running model on audio samples")
         else:
             metadata["sample_sound_files"] = []
 
@@ -178,6 +179,19 @@ def save_neutone_model(
         loaded_model.reset()
         loaded_model.is_resampling()
 
+        if speed_benchmark:
+            log.info(
+                "Running speed benchmark... If this is taking too long consider "
+                "disabling the speed_benchmark parameter."
+            )
+            benchmark_speed_(str(root_dir / "model.nm"))
+            log.info("Finished speed benchmark")
+        else:
+            log.info(
+                "Skipping speed_benchmark because the speed_benchmark parameter is set "
+                "to False"
+            )
+
         if test_offline_mode:
             log.info("Testing offline mode...")
             for input_sample in get_default_audio_samples():
@@ -188,10 +202,14 @@ def save_neutone_model(
                 offline_rendered_sample = loaded_model.forward_offline(
                     input_sample.audio, offline_params
                 )
+                # TODO(cm): add comparison between online and offline rendered samples
                 break  # Only test one sample to reduce export time
+            log.info("Finished testing offline mode")
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")
+            log.info("Reloading model...")
+            loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
             log.info("Assert metadata was saved correctly...")
             assert loaded_metadata == metadata
             del loaded_metadata["sample_sound_files"]
@@ -217,21 +235,14 @@ def save_neutone_model(
 
             log.info("Running benchmarks...")
             log.info(
-                "Check out the README for additional information on how to run benchmarks with different parameters and (sample_rate, buffer_size) combinations."
+                "Check out the README for additional information on how to run "
+                "benchmarks with different parameters and (sample_rate, buffer_size) "
+                "combinations."
             )
             log.info("Running default latency benchmark...")
             benchmark_latency_(
                 str(root_dir / "model.nm"),
             )
-            if speed_benchmark:
-                log.info(
-                    "Running speed benchmark... If this is taking too long consider disabling the speed_benchmark parameter."
-                )
-                benchmark_speed_(str(root_dir / "model.nm"))
-            else:
-                log.info(
-                    "Skipping speed_benchmark because the speed_benchmark parameter is set to False"
-                )
 
             log.info("Your model has been exported successfully!")
             log.info(

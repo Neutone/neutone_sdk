@@ -2,7 +2,7 @@ import logging
 import os
 from abc import ABC
 from enum import Enum
-from typing import Union, NamedTuple
+from typing import Union, NamedTuple, Dict
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ class ParameterMetadata(NamedTuple):
     default_value: Union[int, float, str]
     used: bool
     type: str
+    max_n_chars: int = -1
 
 
 class NeutoneParameter(ABC):
@@ -104,8 +105,12 @@ class TextNeutoneParameter(NeutoneParameter):
             ), "`default_value` must be a string of length less than `max_n_chars`"
         self.max_n_chars = max_n_chars
 
-    def to_metadata_dict(self) -> Dict[str, str]:
-        """Returns a string dictionary containing the metadata of the parameter."""
-        data = super().to_metadata_dict()
-        data["max_n_chars"] = str(self.max_n_chars)
-        return data
+    def to_metadata_dict(self) -> ParameterMetadata:
+        return ParameterMetadata(
+            name=self.name,
+            description=self.description,
+            default_value=self.default_value,
+            used=self.used,
+            type=self.type.value,
+            max_n_chars=self.max_n_chars,
+        )

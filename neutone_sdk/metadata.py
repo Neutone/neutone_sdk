@@ -144,7 +144,7 @@ SCHEMA = {
                 "default_value": {"type": ["integer", "number", "string"]},
                 "used": {"type": "boolean"},
                 "type": {"type": "string", "enum": ["knob"]},
-                "max_n_chars": {"type": "integer"},
+                "max_n_chars": {"type": "integer", "minimum": -1},
             },
         }
     },

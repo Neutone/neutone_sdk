@@ -10,6 +10,7 @@ from neutone_sdk import (
     constants,
     NeutoneParameterType,
     KnobNeutoneParameter,
+    ParameterMetadata,
 )
 from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.utils import validate_waveform
@@ -29,7 +30,7 @@ class WaveformToWaveformMetadata(NamedTuple):
     tags: List[str]
     citation: str
     is_experimental: bool
-    neutone_parameters: Dict[str, Dict[str, str]]
+    neutone_parameters: Dict[str, ParameterMetadata]
     wet_default_value: float
     dry_default_value: float
     input_gain_default_value: float
@@ -101,10 +102,7 @@ class WaveformToWaveformBase(NeutoneModel):
             result.append((p.name, p.default_value))
         if len(result) < self.MAX_N_PARAMS:
             result.extend(
-                [
-                    (f"p{idx + 1}", 0.0)
-                    for idx in range(len(result), self.MAX_N_PARAMS)
-                ]
+                [(f"p{idx + 1}", 0.0) for idx in range(len(result), self.MAX_N_PARAMS)]
             )
         return result
 

@@ -8,7 +8,7 @@ import torch as tr
 from torch import nn, Tensor
 
 from neutone_sdk import constants
-from neutone_sdk.parameter import NeutoneParameter
+from neutone_sdk.parameter import NeutoneParameter, ParameterMetadata
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class CoreMetadata(NamedTuple):
     model_long_description: str
     technical_description: str
     technical_links: Dict[str, str]
-    neutone_parameters: Dict[str, Dict[str, str]]
+    neutone_parameters: Dict[str, ParameterMetadata]
     wet_default_value: float
     dry_default_value: float
     input_gain_default_value: float
@@ -40,7 +40,7 @@ class NeutoneModel(ABC, nn.Module):
     # TorchScript typing does not support instance attributes, so we need to type them
     # as class attributes. This is required for supporting models with no parameters.
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
-    neutone_parameters_metadata: Dict[str, Dict[str, str]]
+    neutone_parameters_metadata: Dict[str, ParameterMetadata]
     remapped_params: Dict[str, Tensor]
     neutone_parameter_names: List[str]
     # TODO(cm): remove from here once plugin metadata parsing is implemented
@@ -264,10 +264,10 @@ class NeutoneModel(ABC, nn.Module):
         self.eval()
 
     @tr.jit.export
-    def get_neutone_parameters_metadata(self) -> Dict[str, Dict[str, str]]:
+    def get_neutone_parameters_metadata(self) -> Dict[str, ParameterMetadata]:
         """
-        Returns the metadata of the parameters as a string dictionary of string
-        dictionaries.
+        Returns the metadata of the parameters as a dictionary of ParameterMetadata
+        named tuples.
         """
         return self.neutone_parameters_metadata
 

@@ -2,7 +2,7 @@ import logging
 import os
 from abc import ABC
 from enum import Enum
-from typing import Dict, Union
+from typing import Union, NamedTuple
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -11,6 +11,14 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 class NeutoneParameterType(Enum):
     KNOB = "knob"
+
+
+class ParameterMetadata(NamedTuple):
+    name: str
+    description: str
+    default_value: Union[int, float, str]
+    used: bool
+    type: str
 
 
 class NeutoneParameter(ABC):
@@ -35,14 +43,14 @@ class NeutoneParameter(ABC):
         self.used = used
         self.type = param_type
 
-    def to_metadata_dict(self) -> Dict[str, str]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "default_value": str(self.default_value),
-            "used": str(self.used),
-            "type": self.type.value,
-        }
+    def to_metadata_dict(self) -> ParameterMetadata:
+        return ParameterMetadata(
+            name=self.name,
+            description=self.description,
+            default_value=self.default_value,
+            used=self.used,
+            type=self.type.value,
+        )
 
 
 class KnobNeutoneParameter(NeutoneParameter):

@@ -1,7 +1,9 @@
 import logging
 import os
-from jsonschema import validate, ValidationError
+
 import requests
+from jsonschema import validate, ValidationError
+from jsonschema._keywords import anyOf
 
 from neutone_sdk.audio import AudioSample
 
@@ -63,8 +65,12 @@ SCHEMA = {
         },
         "neutone_parameters": {
             "type": "object",
-            # TODO(cm): make this an OR statement
-            "required": ["p1", "p2", "p3", "p4"],
+            anyOf: [
+                {"required": ["p1"]},
+                {"required": ["p1", "p2"]},
+                {"required": ["p1", "p2", "p3"]},
+                {"required": ["p1", "p2", "p3", "p4"]},
+            ],
             "properties": {
                 "p1": {"$ref": "#/definitions/neutoneParameter"},
                 "p2": {"$ref": "#/definitions/neutoneParameter"},
@@ -131,13 +137,13 @@ SCHEMA = {
     "definitions": {
         "neutoneParameter": {
             "type": "object",
-            "required": ["name", "description", "type", "used", "default_value"],
+            "required": ["name", "description", "default_value", "used", "type"],
             "properties": {
                 "name": {"type": "string"},
                 "description": {"type": "string"},
+                "default_value": {"type": ["integer", "number", "string"]},
+                "used": {"type": "boolean"},
                 "type": {"type": "string", "enum": ["knob"]},
-                "used": {"type": "string", "enum": ["True", "False"]},
-                "default_value": {"type": "string"},
             },
         }
     },
@@ -172,6 +178,15 @@ SCHEMA = {
 
 
 def validate_metadata(metadata: dict) -> bool:
+    # Convert NamedTuples to dicts since jsonschema doesn't support them
+    assert (
+        "neutone_parameters" in metadata
+    ), "`neutone_parameters` dict is required in metadata"
+    params = metadata["neutone_parameters"]
+    metadata["neutone_parameters"] = {
+        k: v._asdict() if hasattr(v, "_asdict") else v for k, v in params.items()
+    }
+
     try:
         validate(instance=metadata, schema=SCHEMA)
     except ValidationError as err:
@@ -195,20 +210,13 @@ def validate_metadata(metadata: dict) -> bool:
     # We shouldn't have any problems here but as a sanity check
     for param_metadata in metadata["neutone_parameters"].values():
         try:
-            default_value = float(param_metadata["default_value"])
-            assert (
-                0.0 <= default_value <= 1.0
-            ), "Default values for NeutoneParameters should be between 0 and 1"
+            if param_metadata["type"] == "knob":
+                assert (
+                    0.0 <= param_metadata["default_value"] <= 1.0
+                ), "Default values for continuous NeutoneParameters should be between 0 and 1"
         except:
             log.error(
-                f"Could not convert default_value to float for parameter {param_metadata['name']} "
-            )
-            return False
-        try:
-            bool(param_metadata["used"])
-        except:
-            log.error(
-                f"Could not convert used to bool for parameter {param_metadata['name']} "
+                f"Could not convert default_value to float for parameter {param_metadata.name} "
             )
             return False
 

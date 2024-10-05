@@ -2,7 +2,7 @@ import logging
 import os
 from abc import ABC
 from enum import Enum
-from typing import Union, NamedTuple
+from typing import Union, NamedTuple, Dict
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -11,6 +11,7 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 class NeutoneParameterType(Enum):
     KNOB = "knob"
+    TEXT = "text"
 
 
 class ParameterMetadata(NamedTuple):
@@ -19,6 +20,7 @@ class ParameterMetadata(NamedTuple):
     default_value: Union[int, float, str]
     used: bool
     type: str
+    max_n_chars: int = -1
 
 
 class NeutoneParameter(ABC):
@@ -71,4 +73,44 @@ class KnobNeutoneParameter(NeutoneParameter):
             default_value,
             used,
             NeutoneParameterType.KNOB,
+        )
+
+
+class TextNeutoneParameter(NeutoneParameter):
+    """
+    Defines a text Neutone Parameter that the user can use to control a model.
+
+    The name and the description of the parameter will be shown as a tooltip
+    within the UI.
+    `max_n_chars` specifies the maximum number of characters that the user can input.
+    If this value is set to -1, there is no limit on the number of characters.
+    `default_value` is the default value to be automatically populated in the text box.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        max_n_chars: int = -1,
+        default_value: str = "",
+        used: bool = True,
+    ):
+        super().__init__(
+            name, description, default_value, used, NeutoneParameterType.TEXT
+        )
+        assert max_n_chars >= -1, "`max_n_chars` must be greater than or equal to -1"
+        if max_n_chars != -1:
+            assert (
+                len(default_value) <= max_n_chars
+            ), "`default_value` must be a string of length less than `max_n_chars`"
+        self.max_n_chars = max_n_chars
+
+    def to_metadata_dict(self) -> ParameterMetadata:
+        return ParameterMetadata(
+            name=self.name,
+            description=self.description,
+            default_value=self.default_value,
+            used=self.used,
+            type=self.type.value,
+            max_n_chars=self.max_n_chars,
         )

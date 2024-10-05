@@ -32,7 +32,9 @@ class CachedMelSpec(nn.Module):
     ) -> None:
         """
         Creates a Mel spectrogram that supports streaming of a centered, non-causal
-        Mel spectrogram operation that uses zero padding.
+        Mel spectrogram operation that uses zero padding. Using this will result in
+        audio being delayed by (n_fft / 2) - hop_len samples. When calling forward,
+        the input audio block length must be a multiple of the hop length.
 
         Parameters:
             sr (int): Sample rate of the audio

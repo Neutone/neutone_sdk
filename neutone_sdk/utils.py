@@ -68,6 +68,7 @@ def save_neutone_model(
     freeze: bool = False,
     optimize: bool = False,
     speed_benchmark: bool = True,
+    test_offline_mode: bool = True,
 ) -> None:
     """
     Save a Neutone model to disk as a Torchscript file. Additionally include metadata file and samples as needed.
@@ -87,6 +88,7 @@ def save_neutone_model(
         optimize: If true, jit.optimize_for_inference will be applied to the model.
         speed_benchmark: If true, will run a speed benchmark when submission is also true.
                 Consider disabling for non-realtime models as it might take too long.
+        test_offline_mode: If true, will run an offline mode test. Must be true if submission is true.
 
     Returns:
       Will create the following files:
@@ -97,6 +99,12 @@ def save_neutone_model(
         root_dir/samples/*
       ```
     """
+    if submission:
+        assert dump_samples, "If submission is True then dump_samples must also be True"
+        assert (
+            test_offline_mode
+        ), "If submission is True then test_offline_mode must also be True"
+
     random.seed(0)
     tr.manual_seed(0)
     if not model.use_debug_mode:
@@ -132,19 +140,24 @@ def save_neutone_model(
         with open(root_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=4)
 
-        log.info("Running model on audio samples...")
-        if audio_sample_pairs is None:
-            input_samples = get_default_audio_samples()
-            audio_sample_pairs = []
-            for input_sample in input_samples:
-                rendered_sample = render_audio_sample(sqw, input_sample)
-                audio_sample_pairs.append(
-                    AudioSamplePair(input_sample, rendered_sample)
-                )
+        if dump_samples:
+            log.info("Running model on audio samples...")
+            if audio_sample_pairs is None:
+                input_samples = get_default_audio_samples()
+                audio_sample_pairs = []
+                for input_sample in input_samples:
+                    rendered_sample = render_audio_sample(sqw, input_sample)
+                    audio_sample_pairs.append(
+                        AudioSamplePair(input_sample, rendered_sample)
+                    )
 
-        metadata["sample_sound_files"] = [
-            pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
-        ]
+            metadata["sample_sound_files"] = [
+                pair.to_metadata_format() for pair in audio_sample_pairs[:max_n_samples]
+            ]
+            log.info("Finished running model on audio samples")
+        else:
+            metadata["sample_sound_files"] = []
+
         log.info("Validating metadata...")
         validate_metadata(metadata)
         extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
@@ -166,17 +179,37 @@ def save_neutone_model(
         loaded_model.reset()
         loaded_model.is_resampling()
 
-        log.info("Testing offline mode...")
-        for input_sample in get_default_audio_samples():
-            offline_sr = input_sample.sr
-            offline_bs = 4096
-            loaded_model.set_daw_sample_rate_and_buffer_size(offline_sr, offline_bs)
-            offline_params = tr.rand((MAX_N_PARAMS, input_sample.audio.size(1)))
-            offline_rendered_sample = loaded_model.forward_offline(input_sample.audio, offline_params)
-            break  # Only test one sample to reduce export time
+        if speed_benchmark:
+            log.info(
+                "Running speed benchmark... If this is taking too long consider "
+                "disabling the speed_benchmark parameter."
+            )
+            benchmark_speed_(str(root_dir / "model.nm"))
+            log.info("Finished speed benchmark")
+        else:
+            log.info(
+                "Skipping speed_benchmark because the speed_benchmark parameter is set "
+                "to False"
+            )
+
+        if test_offline_mode:
+            log.info("Testing offline mode...")
+            for input_sample in get_default_audio_samples():
+                offline_sr = input_sample.sr
+                offline_bs = 4096
+                loaded_model.set_daw_sample_rate_and_buffer_size(offline_sr, offline_bs)
+                offline_params = tr.rand((MAX_N_PARAMS, input_sample.audio.size(1)))
+                offline_rendered_sample = loaded_model.forward_offline(
+                    input_sample.audio, offline_params
+                )
+                # TODO(cm): add comparison between online and offline rendered samples
+                break  # Only test one sample to reduce export time
+            log.info("Finished testing offline mode")
 
         if submission:  # Do extra checks
             log.info("Running submission checks...")
+            log.info("Reloading model...")
+            loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
             log.info("Assert metadata was saved correctly...")
             assert loaded_metadata == metadata
             del loaded_metadata["sample_sound_files"]
@@ -202,21 +235,14 @@ def save_neutone_model(
 
             log.info("Running benchmarks...")
             log.info(
-                "Check out the README for additional information on how to run benchmarks with different parameters and (sample_rate, buffer_size) combinations."
+                "Check out the README for additional information on how to run "
+                "benchmarks with different parameters and (sample_rate, buffer_size) "
+                "combinations."
             )
             log.info("Running default latency benchmark...")
             benchmark_latency_(
                 str(root_dir / "model.nm"),
             )
-            if speed_benchmark:
-                log.info(
-                    "Running speed benchmark... If this is taking too long consider disabling the speed_benchmark parameter."
-                )
-                benchmark_speed_(str(root_dir / "model.nm"))
-            else:
-                log.info(
-                    "Skipping speed_benchmark because the speed_benchmark parameter is set to False"
-                )
 
             log.info("Your model has been exported successfully!")
             log.info(

@@ -2,7 +2,7 @@ import logging
 import os
 from abc import ABC
 from enum import Enum
-from typing import Union, NamedTuple, Optional, List
+from typing import Union, Optional, List, Dict
 
 from neutone_sdk import constants
 
@@ -15,17 +15,6 @@ class NeutoneParameterType(Enum):
     CONTINUOUS = "continuous"
     CATEGORICAL = "categorical"
     TEXT = "text"
-
-
-class ParameterMetadata(NamedTuple):
-    name: str
-    description: str
-    default_value: Union[int, float, str]
-    used: bool
-    type: str
-    max_n_chars: Optional[int] = None
-    n_values: Optional[int] = None
-    labels: Optional[List[str]] = None
 
 
 class NeutoneParameter(ABC):
@@ -50,14 +39,14 @@ class NeutoneParameter(ABC):
         self.used = used
         self.type = param_type
 
-    def to_metadata(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            name=self.name,
-            description=self.description,
-            default_value=self.default_value,
-            used=self.used,
-            type=self.type.value,
-        )
+    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "default_value": self.default_value,
+            "used": self.used,
+            "type": self.type.value,
+        }
 
 
 class ContinuousNeutoneParameter(NeutoneParameter):
@@ -129,16 +118,12 @@ class CategoricalNeutoneParameter(NeutoneParameter):
         )
         self.labels = labels
 
-    def to_metadata(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            name=self.name,
-            description=self.description,
-            default_value=self.default_value,
-            used=self.used,
-            type=self.type.value,
-            n_values=self.n_values,
-            labels=self.labels,
-        )
+    # def to_metadata(self) -> ParameterMetadata:
+    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+        metadata = super().to_metadata()
+        metadata["n_values"] = self.n_values
+        metadata["labels"] = self.labels
+        return metadata
 
 
 class TextNeutoneParameter(NeutoneParameter):
@@ -170,12 +155,7 @@ class TextNeutoneParameter(NeutoneParameter):
             ), "`default_value` must be a string of length less than `max_n_chars`"
         self.max_n_chars = max_n_chars
 
-    def to_metadata(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            name=self.name,
-            description=self.description,
-            default_value=self.default_value,
-            used=self.used,
-            type=self.type.value,
-            max_n_chars=self.max_n_chars,
-        )
+    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+        metadata = super().to_metadata()
+        metadata["max_n_chars"] = self.max_n_chars
+        return metadata

@@ -1,12 +1,12 @@
 import logging
 import math
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 import torch as tr
 from torch import Tensor, nn
 
-from neutone_sdk import WaveformToWaveformMetadata, validate_waveform
+from neutone_sdk import validate_waveform
 from neutone_sdk.constants import DEFAULT_DAW_SR, DEFAULT_DAW_BS
 from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.sandwich import (
@@ -488,7 +488,7 @@ class SampleQueueWrapper(nn.Module):
         ]
 
     @tr.jit.export
-    def to_metadata(self) -> WaveformToWaveformMetadata:
+    def to_metadata(self) -> Dict[str, Any]:
         return self.w2w_base.to_metadata()
     
     @tr.jit.export

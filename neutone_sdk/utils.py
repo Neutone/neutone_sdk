@@ -10,7 +10,6 @@ import torch as tr
 from torch import Tensor
 from torch.jit import ScriptModule
 
-from neutone_sdk import ParameterMetadata
 from neutone_sdk.audio import (
     AudioSample,
     AudioSamplePair,
@@ -136,7 +135,7 @@ def save_neutone_model(
         script_copy = tr.jit.load(buf)
 
         log.info("Extracting metadata...")
-        metadata = script.to_metadata()._asdict()
+        metadata = script.to_metadata()
         with open(root_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=4)
 
@@ -213,13 +212,7 @@ def save_neutone_model(
             log.info("Assert metadata was saved correctly...")
             assert loaded_metadata == metadata
             del loaded_metadata["sample_sound_files"]
-            model_metadata = loaded_model.to_metadata()._asdict()
-            # TorchScript converts NamedTuples to just tuples so we need to convert them
-            # back to dicts for comparison
-            params = model_metadata["neutone_parameters"]
-            model_metadata["neutone_parameters"] = {
-                k: ParameterMetadata(*v)._asdict() for k, v in params.items()
-            }
+            model_metadata = loaded_model.to_metadata()
             assert loaded_metadata == model_metadata
 
             log.info(

@@ -1,3 +1,4 @@
+import json
 import logging
 from abc import abstractmethod
 from typing import NamedTuple, Dict, List, Optional, Tuple, Union
@@ -81,6 +82,9 @@ class WaveformToWaveformBase(NeutoneModel):
             self.neutone_parameter_descriptions.append(unused_p.description)
             self.neutone_parameter_types.append(unused_p.type.value)
             self.neutone_parameter_used.append(unused_p.used)
+
+        # Save metadata JSON
+        self.metadata = json.dumps(self.to_metadata(), indent=4, sort_keys=True)
 
     def _get_max_n_params(self) -> int:
         """
@@ -408,6 +412,7 @@ class WaveformToWaveformBase(NeutoneModel):
                 "reset",
                 "get_preserved_attributes",
                 "to_metadata",
+                "get_metadata_json",
             ]
         )
         return preserved_attrs
@@ -442,3 +447,7 @@ class WaveformToWaveformBase(NeutoneModel):
             native_sample_rates=self.get_native_sample_rates(),
             look_behind_samples=self.get_look_behind_samples(),
         )
+
+    @tr.jit.export
+    def get_metadata_json(self) -> str:
+        return self.metadata

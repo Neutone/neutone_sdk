@@ -483,12 +483,17 @@ class SampleQueueWrapper(nn.Module):
             "reset",
             "get_preserved_attributes",
             "to_metadata",
+            "get_metadata_json",
             "w2w_base",
         ]
 
     @tr.jit.export
     def to_metadata(self) -> WaveformToWaveformMetadata:
         return self.w2w_base.to_metadata()
+    
+    @tr.jit.export
+    def get_metadata_json(self) -> str:
+        return self.w2w_base.get_metadata_json()
 
     @tr.jit.export
     def get_model_name(self) -> str:

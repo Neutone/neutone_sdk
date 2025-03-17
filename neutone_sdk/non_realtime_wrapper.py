@@ -24,6 +24,11 @@ class NonRealtimeBase(NeutoneModel):
     # TorchScript typing does not support instance attributes, so we need to type them
     # as class attributes. This is required for supporting models with no parameters.
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
+    # From NeutoneModel, sometimes TorchScript complains if there are not redefined here
+    neutone_parameters_metadata: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
+    remapped_params: Dict[str, Tensor]
+    neutone_parameter_names: List[str]
+    # From this class
     cont_param_names: List[str]
     cont_param_indices: List[int]
     cat_param_names: List[str]

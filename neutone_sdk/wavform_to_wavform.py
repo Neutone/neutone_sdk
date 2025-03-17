@@ -21,6 +21,14 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class WaveformToWaveformBase(NeutoneModel):
+    # TorchScript typing does not support instance attributes, so we need to type them
+    # as class attributes. This is required for supporting models with no parameters.
+    # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
+    # From NeutoneModel, sometimes TorchScript complains if there are not redefined here
+    neutone_parameters_metadata: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
+    remapped_params: Dict[str, Tensor]
+    neutone_parameter_names: List[str]
+
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         super().__init__(model, use_debug_mode)
         self.in_n_ch = 1 if self.is_input_mono() else 2

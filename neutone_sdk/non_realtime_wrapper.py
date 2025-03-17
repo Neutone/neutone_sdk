@@ -96,35 +96,6 @@ class NonRealtimeBase(NeutoneModel):
         if self.n_text_params:
             self.has_text_param = True
 
-        # This overrides the base class definitions to remove the text param or extra
-        # base param since it is handled separately in the UI.
-        # TODO(cm): this if statement will be removed once we get rid of the extra
-        # core methods we don't need anymore
-        if self.has_text_param:
-            self.neutone_parameter_names = [
-                p.name
-                for p in self.get_neutone_parameters()
-                if p.type != NeutoneParameterType.TEXT
-            ]
-            self.neutone_parameter_descriptions = [
-                p.description
-                for p in self.get_neutone_parameters()
-                if p.type != NeutoneParameterType.TEXT
-            ]
-            self.neutone_parameter_types = [
-                p.type.value
-                for p in self.get_neutone_parameters()
-                if p.type != NeutoneParameterType.TEXT
-            ]
-            self.neutone_parameter_used = [
-                p.used
-                for p in self.get_neutone_parameters()
-                if p.type != NeutoneParameterType.TEXT
-            ]
-
-        # TODO(cm): this statement will also be removed once core is refactored
-        assert len(self.get_default_param_names()) == self.n_numerical_params
-
         assert all(
             1 <= n <= 2 for n in self.get_audio_in_channels()
         ), "Input audio channels must be mono or stereo"

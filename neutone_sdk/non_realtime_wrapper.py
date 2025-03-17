@@ -6,7 +6,7 @@ from typing import NamedTuple, Dict, List, Optional, Tuple, Union
 import torch as tr
 from torch import Tensor, nn
 
-from neutone_sdk import NeutoneModel, constants, NeutoneParameterType
+from neutone_sdk import NeutoneModel, constants, NeutoneParameterType, ParameterMetadata
 from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
@@ -25,7 +25,7 @@ class NonRealtimeMetadata(NamedTuple):
     tags: List[str]
     citation: str
     is_experimental: bool
-    neutone_parameters: Dict[str, Dict[str, str]]
+    neutone_parameters: Dict[str, ParameterMetadata]
     wet_default_value: float
     dry_default_value: float
     input_gain_default_value: float

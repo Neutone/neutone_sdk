@@ -464,18 +464,12 @@ class SampleQueueWrapper(nn.Module):
     @tr.jit.export
     def get_preserved_attributes(self) -> List[str]:
         return [
+            "w2w_base",
             "forward_bt",
             "is_input_mono",
             "is_output_mono",
-            "get_model_name",
-            "get_model_authors",
             "get_native_sample_rates",
             "get_native_buffer_sizes",
-            "get_wet_default_value",
-            "get_dry_default_value",
-            "get_default_param_values",
-            "get_input_gain_default_value",
-            "get_output_gain_default_value",
             "is_resampling",
             "calc_buffering_delay_samples",
             "calc_model_delay_samples",
@@ -484,7 +478,11 @@ class SampleQueueWrapper(nn.Module):
             "get_preserved_attributes",
             "to_metadata",
             "get_metadata_json",
-            "w2w_base",
+            "get_wet_default_value",
+            "get_dry_default_value",
+            "get_default_param_values",
+            "get_input_gain_default_value",
+            "get_output_gain_default_value",
         ]
 
     @tr.jit.export
@@ -494,14 +492,6 @@ class SampleQueueWrapper(nn.Module):
     @tr.jit.export
     def get_metadata_json(self) -> str:
         return self.w2w_base.get_metadata_json()
-
-    @tr.jit.export
-    def get_model_name(self) -> str:
-        return self.w2w_base.get_model_name()
-
-    @tr.jit.export
-    def get_model_authors(self) -> List[str]:
-        return self.w2w_base.get_model_authors()
 
     @tr.jit.export
     def get_wet_default_value(self) -> float:
@@ -514,22 +504,6 @@ class SampleQueueWrapper(nn.Module):
     @tr.jit.export
     def get_default_param_values(self) -> Tensor:
         return self.w2w_base.get_default_param_values()
-
-    @tr.jit.export
-    def get_default_param_names(self) -> List[str]:
-        return self.w2w_base.get_default_param_names()
-
-    @tr.jit.export
-    def get_default_param_descriptions(self) -> List[str]:
-        return self.w2w_base.get_default_param_descriptions()
-
-    @tr.jit.export
-    def get_default_param_types(self) -> List[str]:
-        return self.w2w_base.get_default_param_types()
-
-    @tr.jit.export
-    def get_default_param_used(self) -> List[bool]:
-        return self.w2w_base.get_default_param_used()
 
     @tr.jit.export
     def get_input_gain_default_value(self) -> float:

@@ -22,10 +22,6 @@ class NeutoneModel(ABC, nn.Module):
     neutone_parameters_metadata: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
     remapped_params: Dict[str, Tensor]
     neutone_parameter_names: List[str]
-    # TODO(cm): remove from here once plugin metadata parsing is implemented
-    neutone_parameter_descriptions: List[str]
-    neutone_parameter_used: List[bool]
-    neutone_parameter_types: List[str]
 
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         """
@@ -78,14 +74,6 @@ class NeutoneModel(ABC, nn.Module):
 
         # Save parameter information
         self.neutone_parameter_names = [p.name for p in self.get_neutone_parameters()]
-        # TODO(cm): remove from here once plugin metadata parsing is implemented
-        self.neutone_parameter_descriptions = [
-            p.description for p in self.get_neutone_parameters()
-        ]
-        self.neutone_parameter_used = [p.used for p in self.get_neutone_parameters()]
-        self.neutone_parameter_types = [
-            p.type.value for p in self.get_neutone_parameters()
-        ]
 
     @abstractmethod
     def _get_max_n_params(self) -> int:
@@ -262,26 +250,6 @@ class NeutoneModel(ABC, nn.Module):
         return self.default_param_values
 
     @tr.jit.export
-    def get_default_param_names(self) -> List[str]:
-        # TODO(cm): remove this once plugin metadata parsing is implemented
-        return self.neutone_parameter_names
-
-    @tr.jit.export
-    def get_default_param_descriptions(self) -> List[str]:
-        # TODO(cm): remove this once plugin metadata parsing is implemented
-        return self.neutone_parameter_descriptions
-
-    @tr.jit.export
-    def get_default_param_types(self) -> List[str]:
-        # TODO(cm): remove this once plugin metadata parsing is implemented
-        return self.neutone_parameter_types
-
-    @tr.jit.export
-    def get_default_param_used(self) -> List[bool]:
-        # TODO(cm): remove this once plugin metadata parsing is implemented
-        return self.neutone_parameter_used
-
-    @tr.jit.export
     def get_wet_default_value(self) -> float:
         return 1.0
 
@@ -305,10 +273,6 @@ class NeutoneModel(ABC, nn.Module):
             "model",  # nn.Module
             "get_neutone_parameters_metadata",
             "get_default_param_values",
-            "get_default_param_names",
-            "get_default_param_descriptions",
-            "get_default_param_types",
-            "get_default_param_used",
             "get_wet_default_value",
             "get_dry_default_value",
             "get_input_gain_default_value",

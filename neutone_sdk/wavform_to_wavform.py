@@ -11,7 +11,6 @@ from neutone_sdk import (
     NeutoneModel,
     constants,
     NeutoneParameterType,
-    ContinuousNeutoneParameter,
 )
 from neutone_sdk.queues import CircularInplaceTensorQueue
 from neutone_sdk.utils import validate_waveform
@@ -42,23 +41,10 @@ class WaveformToWaveformBase(NeutoneModel):
             "models."
         )
 
-        # For compatibility with the current plugin, we fill in missing params
-        # TODO(cm): remove once plugin metadata parsing is implemented
-        for idx in range(self.n_neutone_parameters, self.MAX_N_PARAMS):
-            unused_p = ContinuousNeutoneParameter(
-                name="",
-                description="",
-                default_value=0.0,
-                used=False,
-            )
-            self.neutone_parameters_metadata[f"p{idx+1}"] = unused_p.to_metadata()
-            self.neutone_parameter_names.append(unused_p.name)
-            self.neutone_parameter_descriptions.append(unused_p.description)
-            self.neutone_parameter_types.append(unused_p.type.value)
-            self.neutone_parameter_used.append(unused_p.used)
-
         # Save metadata JSON
-        self.metadata_json_str = json.dumps(self.to_metadata(), indent=4, sort_keys=True)
+        self.metadata_json_str = json.dumps(
+            self.to_metadata(), indent=4, sort_keys=True
+        )
 
     def _get_max_n_params(self) -> int:
         """
@@ -397,9 +383,10 @@ class WaveformToWaveformBase(NeutoneModel):
         core_metadata = self.to_core_metadata()
         core_metadata["is_input_mono"] = self.is_input_mono()
         core_metadata["is_output_mono"] = self.is_output_mono()
-        core_metadata["model_type"] = \
-            (f"{'mono' if self.is_input_mono() else 'stereo'}"
-             f"-{'mono' if self.is_output_mono() else 'stereo'}")
+        core_metadata["model_type"] = (
+            f"{'mono' if self.is_input_mono() else 'stereo'}"
+            f"-{'mono' if self.is_output_mono() else 'stereo'}"
+        )
         core_metadata["native_buffer_sizes"] = self.get_native_buffer_sizes()
         core_metadata["native_sample_rates"] = self.get_native_sample_rates()
         core_metadata["look_behind_samples"] = self.get_look_behind_samples()

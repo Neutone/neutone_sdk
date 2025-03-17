@@ -1,46 +1,18 @@
+import json
 import logging
 import os
 from abc import abstractmethod
-from typing import NamedTuple, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch as tr
 from torch import Tensor, nn
 
-from neutone_sdk import NeutoneModel, constants, NeutoneParameterType, ParameterMetadata
+from neutone_sdk import NeutoneModel, constants, NeutoneParameterType
 from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
-
-
-class NonRealtimeMetadata(NamedTuple):
-    model_name: str
-    model_authors: List[str]
-    model_version: str
-    model_short_description: str
-    model_long_description: str
-    technical_description: str
-    technical_links: Dict[str, str]
-    tags: List[str]
-    citation: str
-    is_experimental: bool
-    neutone_parameters: Dict[str, ParameterMetadata]
-    wet_default_value: float
-    dry_default_value: float
-    input_gain_default_value: float
-    output_gain_default_value: float
-    audio_in_channels: List[int]
-    audio_out_channels: List[int]
-    native_sample_rates: List[int]
-    native_buffer_sizes: List[int]
-    is_one_shot_model: bool
-    is_text_model: bool
-    audio_in_labels: List[str]
-    audio_out_labels: List[str]
-    sdk_version: str
-    pytorch_version: str
-    date_created: float
 
 
 class NonRealtimeBase(NeutoneModel):
@@ -171,6 +143,11 @@ class NonRealtimeBase(NeutoneModel):
             assert len(self.get_audio_out_labels()) == len(
                 self.get_audio_out_channels()
             ), "No. of output audio labels must match no. of output audio channels"
+
+        # Save metadata JSON
+        self.metadata_json_str = json.dumps(
+            self.to_metadata(), indent=4, sort_keys=True
+        )
 
     def _get_max_n_params(self) -> int:
         """
@@ -571,39 +548,25 @@ class NonRealtimeBase(NeutoneModel):
                 "is_text_model",
                 "get_preserved_attributes",
                 "to_metadata",
+                "get_metadata_json",
             ]
         )
         return preserved_attrs
 
     @tr.jit.export
-    def to_metadata(self) -> NonRealtimeMetadata:
+    def to_metadata(self) -> Dict[str, Any]:
         # This avoids using inheritance which torchscript does not support
         core_metadata = self.to_core_metadata()
-        return NonRealtimeMetadata(
-            model_name=core_metadata.model_name,
-            model_authors=core_metadata.model_authors,
-            model_short_description=core_metadata.model_short_description,
-            model_long_description=core_metadata.model_long_description,
-            neutone_parameters=core_metadata.neutone_parameters,
-            wet_default_value=core_metadata.wet_default_value,
-            dry_default_value=core_metadata.dry_default_value,
-            input_gain_default_value=core_metadata.input_gain_default_value,
-            output_gain_default_value=core_metadata.output_gain_default_value,
-            technical_description=core_metadata.technical_description,
-            technical_links=core_metadata.technical_links,
-            tags=core_metadata.tags,
-            model_version=core_metadata.model_version,
-            sdk_version=core_metadata.sdk_version,
-            pytorch_version=core_metadata.pytorch_version,
-            date_created=core_metadata.date_created,
-            citation=core_metadata.citation,
-            is_experimental=core_metadata.is_experimental,
-            audio_in_channels=self.get_audio_in_channels(),
-            audio_out_channels=self.get_audio_out_channels(),
-            native_buffer_sizes=self.get_native_buffer_sizes(),
-            native_sample_rates=self.get_native_sample_rates(),
-            is_one_shot_model=self.is_one_shot_model(),
-            audio_in_labels=self.get_audio_in_labels(),
-            audio_out_labels=self.get_audio_out_labels(),
-            is_text_model=self.is_text_model(),
-        )
+        core_metadata["audio_in_channels"] = self.get_audio_in_channels()
+        core_metadata["audio_out_channels"] = self.get_audio_out_channels()
+        core_metadata["native_buffer_sizes"] = self.get_native_buffer_sizes()
+        core_metadata["native_sample_rates"] = self.get_native_sample_rates()
+        core_metadata["is_one_shot_model"] = self.is_one_shot_model()
+        core_metadata["audio_in_labels"] = self.get_audio_in_labels()
+        core_metadata["audio_out_labels"] = self.get_audio_out_labels()
+        core_metadata["is_text_model"] = self.is_text_model()
+        return core_metadata
+
+    @tr.jit.export
+    def get_metadata_json(self) -> str:
+        return self.metadata_json_str

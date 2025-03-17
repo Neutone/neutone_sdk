@@ -181,15 +181,6 @@ SCHEMA = {
 
 
 def validate_metadata(metadata: dict) -> bool:
-    # Convert NamedTuples to dicts since jsonschema doesn't support them
-    assert (
-        "neutone_parameters" in metadata
-    ), "`neutone_parameters` dict is required in metadata"
-    params = metadata["neutone_parameters"]
-    metadata["neutone_parameters"] = {
-        k: v._asdict() if hasattr(v, "_asdict") else v for k, v in params.items()
-    }
-
     try:
         validate(instance=metadata, schema=SCHEMA)
     except ValidationError as err:

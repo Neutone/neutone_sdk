@@ -1,7 +1,8 @@
 import json
 import logging
+import os
 from abc import abstractmethod
-from typing import NamedTuple, Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch as tr
 from torch import Tensor, nn
@@ -17,33 +18,7 @@ from neutone_sdk.utils import validate_waveform
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
-
-
-class WaveformToWaveformMetadata(NamedTuple):
-    model_name: str
-    model_authors: List[str]
-    model_version: str
-    model_short_description: str
-    model_long_description: str
-    technical_description: str
-    technical_links: Dict[str, str]
-    tags: List[str]
-    citation: str
-    is_experimental: bool
-    neutone_parameters: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
-    wet_default_value: float
-    dry_default_value: float
-    input_gain_default_value: float
-    output_gain_default_value: float
-    is_input_mono: bool
-    is_output_mono: bool
-    model_type: str
-    native_sample_rates: List[int]
-    native_buffer_sizes: List[int]
-    look_behind_samples: int
-    sdk_version: str
-    pytorch_version: str
-    date_created: float
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class WaveformToWaveformBase(NeutoneModel):

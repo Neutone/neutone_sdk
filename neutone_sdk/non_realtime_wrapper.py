@@ -45,7 +45,7 @@ class NonRealtimeBase(NeutoneModel):
         Compatible with the Neutone Gen plugin.
         """
         super().__init__(model, use_debug_mode)
-        self.progress_percentage = 0
+        self.progress_percentage = 0.0
         self.cancel_forward_pass_requested = False
         self.has_text_param = False
 
@@ -301,7 +301,7 @@ class NonRealtimeBase(NeutoneModel):
             assert cat_params.ndim == 2
         return cat_params[:, :1]
 
-    def set_progress_percentage(self, progress_percentage: int) -> None:
+    def set_progress_percentage(self, progress_percentage: float) -> None:
         """
         Sets the progress percentage of the model.
 
@@ -348,6 +348,8 @@ class NonRealtimeBase(NeutoneModel):
 
         This method should not be overwritten by SDK users.
         """
+        self.set_progress_percentage(0.0)  # Reset progress percentage
+
         if text_params is None:
             text_params = self.text_param_default_values
 
@@ -476,12 +478,12 @@ class NonRealtimeBase(NeutoneModel):
         Returns:
             bool: True if 'reset_model' is implemented and successful, otherwise False.
         """
-        self.set_progress_percentage(0)
+        self.set_progress_percentage(0.0)
         self.cancel_forward_pass_requested = False
         return self.reset_model()
 
     @tr.jit.export
-    def get_progress_percentage(self) -> int:
+    def get_progress_percentage(self) -> float:
         """
         Returns the progress percentage of the model.
         """

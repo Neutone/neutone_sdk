@@ -122,19 +122,21 @@ if __name__ == "__main__":
     wrapper = NonRealtimeClipperModelWrapper(model)
     sqw = NonRealtimeSampleQueueWrapper(wrapper)
 
-    audio_in = [tr.rand(2, 2048)]
+    in_n_samples = 2048
+    audio_in = [tr.rand(1, in_n_samples)]
     # audio_in = []
-    numerical_params = tr.rand(3, 2048)
+    numerical_params = tr.rand(3, in_n_samples)
     # numerical_params = None
+
     out = sqw.forward(audio_in, numerical_params)
+    log.info(f"   out[0].shape: {out[0].shape}")
+    log.info(f"   out: {out}")
 
     sqw.reset()
     sqw.prepare_for_inference()
     # TODO(cm): write export method for nonrealtime models
     ts = tr.jit.script(sqw)
-    out_ts = ts.forward(audio_in, numerical_params)
 
-    log.info(f"   out[0].shape: {out[0].shape}")
+    out_ts = ts.forward(audio_in, numerical_params)
     log.info(f"out_ts[0].shape: {out_ts[0].shape}")
-    log.info(f"   out: {out}")
     log.info(f"out_ts: {out_ts}")

@@ -44,6 +44,8 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         self.model_sr = utils.select_best_model_sr(
             self.daw_sr, self.get_native_sample_rates()
         )
+        self.block_percentage = 0.0  # How much percent is one block worth
+        self.block_prog_percentage = 0.0 # Current progress of block processing
 
         self.channel_normalizer = ChannelNormalizerSandwich(
             use_debug_mode=use_debug_mode
@@ -81,6 +83,10 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         self.resample_sandwich_stereo.use_debug_mode = False
         self.params_resample_sandwich.use_debug_mode = False
         self.eval()
+
+    def update_block_prog_percentage(self, block_idx: int, n_blocks: int) -> None:
+        self.block_percentage = 100.0 / n_blocks
+        self.block_prog_percentage = block_idx / n_blocks * 100.0
 
     @tr.jit.export
     def get_audio_in_channels(self) -> List[int]:
@@ -237,6 +243,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             model_bs = utils.select_best_model_buffer_size(
                 in_n_samples_proc + model_delay, self.get_native_buffer_sizes()
             )
+            # Split into blocks if not a one-shot model
             if not self.is_one_shot_model():
                 n_blocks = math.ceil((in_n_samples_proc + delay_padding) / model_bs)
                 block_padding = n_blocks * model_bs - in_n_samples_proc - delay_padding
@@ -263,6 +270,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             model_bs = utils.select_best_model_buffer_size(
                 in_n_samples_proc + delay_padding, self.get_native_buffer_sizes()
             )
+            # Split into blocks if not a one-shot model
             if not self.is_one_shot_model():
                 n_blocks = math.ceil((in_n_samples_proc + delay_padding) / model_bs)
                 block_padding = n_blocks * model_bs - in_n_samples_proc - delay_padding
@@ -280,15 +288,18 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         # Inference
         audio_out_blocks: List[List[T]] = []
         numerical_params_block: Optional[T] = None
-        for idx in range(n_blocks):
+        for block_idx in range(n_blocks):
             if self.should_cancel_forward_pass():
                 return []
 
-            audio_in_block = [b[:, idx, :] for b in audio_in_blocks]
+            # Update progress for UI
+            self.update_block_prog_percentage(block_idx, n_blocks)
+
+            audio_in_block = [b[:, block_idx, :] for b in audio_in_blocks]
             if numerical_params_blocks is not None:
-                numerical_params_block = numerical_params_blocks[:, idx, :]
+                numerical_params_block = numerical_params_blocks[:, block_idx, :]
             audio_out_block = self.nrb.forward(
-                idx, audio_in_block, numerical_params_block, text_params
+                block_idx, audio_in_block, numerical_params_block, text_params
             )
             audio_out_blocks.append(audio_out_block)
 
@@ -375,8 +386,11 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         return audio_out_proc
 
     @tr.jit.export
-    def get_progress_percentage(self) -> int:
-        return self.nrb.get_progress_percentage()
+    def get_progress_percentage(self) -> float:
+        model_prog_frac = self.nrb.get_progress_percentage() / 100.0
+        model_prog_percentage = self.block_percentage * model_prog_frac
+        total_prog_percentage = self.block_prog_percentage + model_prog_percentage
+        return total_prog_percentage
 
     @tr.jit.export
     def should_cancel_forward_pass(self) -> bool:
@@ -393,6 +407,8 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
     @tr.jit.export
     def reset(self) -> None:
         self.nrb.reset()
+        self.block_percentage = 0.0
+        self.block_prog_percentage = 0.0
 
     @tr.jit.export
     def get_preserved_attributes(self) -> List[str]:

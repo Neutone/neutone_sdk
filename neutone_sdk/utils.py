@@ -327,3 +327,49 @@ def check_for_preserved_attributes(
             f"{attr}() method is missing from the TorchScript model. Did you overwrite "
             f"it and forget to add the @torch.jit.export decorator?"
         )
+
+
+def select_best_model_sr(daw_sr: int, native_sample_rates: List[int]) -> int:
+    """
+    Given a DAW sampling rate and a list of all the sampling rates a Neutone model supports (usually only one, or
+    an empty list indicates all sampling rates are supported), determine the optimal sampling rate to use.
+    """
+    # Avoid resampling whenever possible
+    if not native_sample_rates:
+        return daw_sr
+    if daw_sr in native_sample_rates:
+        return daw_sr
+    # Resampling is unavoidable
+    if len(native_sample_rates) == 1:
+        return native_sample_rates[0]
+    # TODO(cm): combine this with selecting the buffer size to be smarter
+    # TODO(cm): prefer upsampling if the buffer sizes allow it
+    # This is a workaround for torchscript not supporting lambda functions
+    diffs = [abs(sr - daw_sr) for sr in native_sample_rates]
+    min_idx = diffs.index(min(diffs))
+    return native_sample_rates[min_idx]
+
+
+def select_best_model_buffer_size(
+    io_bs: int, native_buffer_sizes: List[int]
+) -> int:
+    """
+    Given a DAW buffer size and a list of all the buffer sizes a Neutone model supports (usually only one, or
+    an empty list indicates all buffer sizes are supported), determine the optimal buffer size to use.
+    """
+    if not native_buffer_sizes:
+        return io_bs
+    if len(native_buffer_sizes) == 1:
+        return native_buffer_sizes[0]
+    native_buffer_sizes = sorted(native_buffer_sizes)
+    for bs in native_buffer_sizes:
+        if bs % io_bs == 0:
+            return bs
+    for bs in native_buffer_sizes:
+        if bs > io_bs:
+            return bs
+    # TODO(cm): prefer near bs // 2 if 0 padded forward passes are enabled
+    # This is a workaround for torchscript not supporting lambda functions
+    diffs = [abs(bs - io_bs) for bs in native_buffer_sizes]
+    min_idx = diffs.index(min(diffs))
+    return native_buffer_sizes[min_idx]

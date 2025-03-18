@@ -25,7 +25,9 @@ class NonRealtimeBase(NeutoneModel):
     # as class attributes. This is required for supporting models with no parameters.
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
     # From NeutoneModel, sometimes TorchScript complains if there are not redefined here
-    neutone_parameters_metadata: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
+    neutone_parameters_metadata: Dict[
+        str, Dict[str, Union[int, float, str, bool, List[str]]]
+    ]
     remapped_params: Dict[str, Tensor]
     neutone_parameter_names: List[str]
     # From this class
@@ -374,7 +376,9 @@ class NonRealtimeBase(NeutoneModel):
 
         if self.use_debug_mode:
             if numerical_params is not None:
-                assert numerical_params.shape == (self.n_numerical_params, in_n)
+                assert numerical_params.size(0) == self.n_numerical_params
+                if audio_in:
+                    assert numerical_params.size(1) == in_n
             if not self.is_one_shot_model() and self.get_native_buffer_sizes():
                 assert (
                     in_n in self.get_native_buffer_sizes()

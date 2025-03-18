@@ -9,6 +9,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from neutone_sdk import NeutoneParameter, ContinuousNeutoneParameter
+from neutone_sdk.non_realtime_sqw import NonRealtimeSampleQueueWrapper
 from neutone_sdk.non_realtime_wrapper import NonRealtimeBase
 
 logging.basicConfig()
@@ -17,16 +18,16 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 
 class ClipperModel(nn.Module):
-    def forward(self,
-                x: Tensor,
-                min_val: Tensor,
-                max_val: Tensor,
-                gain: Tensor) -> Tensor:
+    def forward(
+        self, x: Tensor, min_val: Tensor, max_val: Tensor, gain: Tensor
+    ) -> Tensor:
         tr.neg(min_val, out=min_val)
         tr.mul(gain, min_val, out=min_val)
         tr.mul(gain, max_val, out=max_val)
         tr.clip(x, min=min_val, max=max_val, out=x)
         return x
+        # return x[:, :-4]
+        # return tr.rand(2, 2048).fill_(0.5)
 
 
 class NonRealtimeClipperModelWrapper(NonRealtimeBase):
@@ -63,7 +64,9 @@ class NonRealtimeClipperModelWrapper(NonRealtimeBase):
         return [
             ContinuousNeutoneParameter("min", "min clip threshold", default_value=0.15),
             ContinuousNeutoneParameter("max", "max clip threshold", default_value=0.15),
-            ContinuousNeutoneParameter("gain", "scale clip threshold", default_value=1.0),
+            ContinuousNeutoneParameter(
+                "gain", "scale clip threshold", default_value=1.0
+            ),
         ]
 
     @tr.jit.export
@@ -89,19 +92,24 @@ class NonRealtimeClipperModelWrapper(NonRealtimeBase):
     def aggregate_continuous_params(self, cont_params: Tensor) -> Tensor:
         return cont_params  # We want sample-level control, so no aggregation
 
-    def do_forward_pass(self,
-                        curr_block_idx: int,
-                        audio_in: List[Tensor],
-                        knob_params: Dict[str, Tensor],
-                        text_params: List[str]) -> List[Tensor]:
-        min_val, max_val, gain = (knob_params["min"],
-                                  knob_params["max"],
-                                  knob_params["gain"])
+    def do_forward_pass(
+        self,
+        curr_block_idx: int,
+        audio_in: List[Tensor],
+        knob_params: Dict[str, Tensor],
+        text_params: List[str],
+    ) -> List[Tensor]:
+        min_val, max_val, gain = (
+            knob_params["min"],
+            knob_params["max"],
+            knob_params["gain"],
+        )
         audio_out = []
         for x in audio_in:
             x = self.model.forward(x, min_val, max_val, gain)
             audio_out.append(x)
         return audio_out
+        # return [self.model.forward(min_val, min_val, max_val, gain)]
 
 
 if __name__ == "__main__":
@@ -112,8 +120,21 @@ if __name__ == "__main__":
 
     model = ClipperModel()
     wrapper = NonRealtimeClipperModelWrapper(model)
+    sqw = NonRealtimeSampleQueueWrapper(wrapper)
 
+    audio_in = [tr.rand(2, 2048)]
+    # audio_in = []
+    numerical_params = tr.rand(3, 2048)
+    # numerical_params = None
+    out = sqw.forward(audio_in, numerical_params)
+
+    sqw.reset()
+    sqw.prepare_for_inference()
     # TODO(cm): write export method for nonrealtime models
-    wrapper.forward(0, [tr.rand(2, 2048)])
-    ts = tr.jit.script(wrapper)
-    ts.forward(0, [tr.rand(2, 2048)])
+    ts = tr.jit.script(sqw)
+    out_ts = ts.forward(audio_in, numerical_params)
+
+    log.info(f"   out[0].shape: {out[0].shape}")
+    log.info(f"out_ts[0].shape: {out_ts[0].shape}")
+    log.info(f"   out: {out}")
+    log.info(f"out_ts: {out_ts}")

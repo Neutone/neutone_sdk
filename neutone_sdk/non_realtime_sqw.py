@@ -41,11 +41,10 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
 
         self.n_in_tracks = len(self.get_audio_in_channels())
         self.n_out_tracks = len(self.get_audio_out_channels())
-        self.model_sr = utils.select_best_model_sr(
-            self.daw_sr, self.get_native_sample_rates()
-        )
         self.block_percentage = 0.0  # How much percent is one block worth
-        self.block_prog_percentage = 0.0 # Current progress of block processing
+        self.block_prog_percentage = 0.0  # Current progress of block processing
+
+        self.set_daw_sample_rate_and_buffer_size(daw_sr, daw_bs)
 
         self.channel_normalizer = ChannelNormalizerSandwich(
             use_debug_mode=use_debug_mode
@@ -54,7 +53,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             in_n_ch=1,
             out_n_ch=1,
             in_sr=self.daw_sr,
-            out_sr=self.model_sr,  # Tmp sample rate values
+            out_sr=self.get_current_model_sample_rate(),  # Tmp sample rate values
             in_bs=daw_bs,
             use_debug_mode=use_debug_mode,
         )
@@ -62,7 +61,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             in_n_ch=2,
             out_n_ch=2,
             in_sr=self.daw_sr,
-            out_sr=self.model_sr,  # Tmp sample rate values
+            out_sr=self.get_current_model_sample_rate(),  # Tmp sample rate values
             in_bs=daw_bs,
             use_debug_mode=use_debug_mode,
         )
@@ -70,7 +69,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             in_n_ch=self.nrb.n_numerical_params,
             out_n_ch=self.nrb.n_numerical_params,
             in_sr=self.daw_sr,
-            out_sr=self.model_sr,  # Tmp sample rate value
+            out_sr=self.get_current_model_sample_rate(),  # Tmp sample rate value
             in_bs=daw_bs,
             use_debug_mode=use_debug_mode,
         )
@@ -127,9 +126,19 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             model_sr = utils.select_best_model_sr(
                 daw_sr, self.get_native_sample_rates()
             )
+        if model_bs is not None:
+            if self.use_debug_mode:
+                assert (
+                    len(self.get_native_buffer_sizes()) == 0
+                    or model_bs in self.get_native_buffer_sizes()
+                )
+        else:
+            model_bs = utils.select_best_model_buffer_size(
+                daw_bs, self.get_native_buffer_sizes()
+            )
         self.daw_sr = daw_sr
-        self.model_sr = model_sr
         self.reset()
+        self.nrb.set_sample_rate_and_buffer_size(model_sr, model_bs)
         return -1  # We return -1 just to match the interface of the SQW
 
     @tr.jit.export
@@ -137,6 +146,15 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         return self.nrb.is_one_shot_model()
 
     def forward(
+        self,
+        audio_in: List[Tensor],
+        numerical_params: Optional[Tensor] = None,
+        text_params: Optional[List[str]] = None,
+    ) -> List[Tensor]:
+        return self.forward_non_realtime(audio_in, numerical_params, text_params)
+
+    @tr.jit.export
+    def forward_non_realtime(
         self,
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
@@ -161,10 +179,10 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             in_n_samples = audio_in[0].size(1)
             # Setup audio resamplers
             self.resample_sandwich_mono.set_sample_rates(
-                self.daw_sr, self.model_sr, in_n_samples
+                self.daw_sr, self.get_current_model_sample_rate(), in_n_samples
             )
             self.resample_sandwich_stereo.set_sample_rates(
-                self.daw_sr, self.model_sr, in_n_samples
+                self.daw_sr, self.get_current_model_sample_rate(), in_n_samples
             )
             for in_ch, in_track in zip(self.get_audio_in_channels(), audio_in):
                 if self.should_cancel_forward_pass():
@@ -211,7 +229,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
                 in_n_samples = numerical_params.size(1)
             # Setup params resampler
             self.params_resample_sandwich.set_sample_rates(
-                self.daw_sr, self.model_sr, in_n_samples
+                self.daw_sr, self.get_current_model_sample_rate(), in_n_samples
             )
             if self.is_resampling():
                 numerical_params = self.params_resample_sandwich.process_in(
@@ -236,6 +254,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         delay_padding = model_delay
         block_padding = 0
         audio_in_blocks = []
+        model_bs: Optional[int] = None
 
         # Pad and unfold input audio
         if audio_in_proc:
@@ -288,6 +307,12 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         # Inference
         audio_out_blocks: List[List[T]] = []
         numerical_params_block: Optional[T] = None
+        # Set model buffer size if required
+        if not self.is_one_shot_model() and model_bs is not None:
+            self.nrb.set_sample_rate_and_buffer_size(
+                self.get_current_model_sample_rate(), model_bs
+            )
+
         for block_idx in range(n_blocks):
             if self.should_cancel_forward_pass():
                 return []
@@ -337,53 +362,53 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
 
             audio_out.append(track)
 
-        # Resample output audio
-        audio_out_proc = []
-        # We need to reconfigure the resamplers if the output audio size has changed
-        # and use process_in instead of process_out
-        reconfigured_resamplers = False
-        if self.resample_sandwich_mono.out_bs != out_n_samples:
-            self.resample_sandwich_mono.set_sample_rates(
-                self.model_sr, self.daw_sr, out_n_samples
-            )
-            self.resample_sandwich_stereo.set_sample_rates(
-                self.model_sr, self.daw_sr, out_n_samples
-            )
-            reconfigured_resamplers = True
+        # # Resample output audio
+        # audio_out_proc = []
+        # # We need to reconfigure the resamplers if the output audio size has changed
+        # # and use process_in instead of process_out
+        # reconfigured_resamplers = False
+        # if self.resample_sandwich_mono.out_bs != out_n_samples:
+        #     self.resample_sandwich_mono.set_sample_rates(
+        #         self.get_current_model_sample_rate(), self.daw_sr, out_n_samples
+        #     )
+        #     self.resample_sandwich_stereo.set_sample_rates(
+        #         self.get_current_model_sample_rate(), self.daw_sr, out_n_samples
+        #     )
+        #     reconfigured_resamplers = True
+        #
+        # if self.is_resampling():
+        #     # Resample output audio
+        #     for out_track in audio_out:
+        #         if self.should_cancel_forward_pass():
+        #             return []
+        #
+        #         out_ch = out_track.size(0)
+        #         if out_ch == 1:
+        #             if reconfigured_resamplers:
+        #                 out_track_proc = self.resample_sandwich_mono.process_in(
+        #                     out_track
+        #                 )
+        #             else:
+        #                 out_track_proc = self.resample_sandwich_mono.process_out(
+        #                     out_track
+        #                 )
+        #         else:
+        #             if reconfigured_resamplers:
+        #                 out_track_proc = self.resample_sandwich_stereo.process_in(
+        #                     out_track
+        #                 )
+        #             else:
+        #                 out_track_proc = self.resample_sandwich_stereo.process_out(
+        #                     out_track
+        #                 )
+        #         # The resampler doesn't allocate memory so we need to clone the output
+        #         # in case there are multiple output audio tracks
+        #         out_track_proc = out_track_proc.clone()
+        #         audio_out_proc.append(out_track_proc)
+        # else:
+        #     audio_out_proc = audio_out
 
-        if self.is_resampling():
-            # Resample output audio
-            for out_track in audio_out:
-                if self.should_cancel_forward_pass():
-                    return []
-
-                out_ch = out_track.size(0)
-                if out_ch == 1:
-                    if reconfigured_resamplers:
-                        out_track_proc = self.resample_sandwich_mono.process_in(
-                            out_track
-                        )
-                    else:
-                        out_track_proc = self.resample_sandwich_mono.process_out(
-                            out_track
-                        )
-                else:
-                    if reconfigured_resamplers:
-                        out_track_proc = self.resample_sandwich_stereo.process_in(
-                            out_track
-                        )
-                    else:
-                        out_track_proc = self.resample_sandwich_stereo.process_out(
-                            out_track
-                        )
-                # The resampler doesn't allocate memory so we need to clone the output
-                # in case there are multiple output audio tracks
-                out_track_proc = out_track_proc.clone()
-                audio_out_proc.append(out_track_proc)
-        else:
-            audio_out_proc = audio_out
-
-        return audio_out_proc
+        return audio_out
 
     @tr.jit.export
     def get_progress_percentage(self) -> float:
@@ -411,6 +436,18 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         self.block_prog_percentage = 0.0
 
     @tr.jit.export
+    def get_current_model_sample_rate(self) -> int:
+        return self.nrb.get_current_model_sample_rate()
+
+    @tr.jit.export
+    def get_current_model_buffer_size(self) -> int:
+        return self.nrb.get_current_model_buffer_size()
+
+    @tr.jit.export
+    def get_model_bpm(self) -> Optional[int]:
+        return self.nrb.get_model_bpm()
+
+    @tr.jit.export
     def get_preserved_attributes(self) -> List[str]:
         return [
             "nrb",
@@ -426,6 +463,9 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             "request_cancel_forward_pass",
             "is_text_model",
             "reset",
+            "get_current_model_sample_rate",
+            "get_current_model_buffer_size",
+            "get_model_bpm",
             "get_preserved_attributes",
             "to_metadata",
             "get_metadata_json",

@@ -128,7 +128,7 @@ if __name__ == "__main__":
     numerical_params = tr.rand(3, in_n_samples)
     # numerical_params = None
 
-    out = sqw.forward(audio_in, numerical_params)
+    out = sqw.forward_non_realtime(audio_in, numerical_params)
     log.info(f"   out[0].shape: {out[0].shape}")
     log.info(f"   out: {out}")
 
@@ -137,6 +137,6 @@ if __name__ == "__main__":
     # TODO(cm): write export method for nonrealtime models
     ts = tr.jit.script(sqw)
 
-    out_ts = ts.forward(audio_in, numerical_params)
+    out_ts = ts.forward_non_realtime(audio_in, numerical_params)
     log.info(f"out_ts[0].shape: {out_ts[0].shape}")
     log.info(f"out_ts: {out_ts}")

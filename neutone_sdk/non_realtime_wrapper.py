@@ -5,7 +5,7 @@ from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch as tr
-from torch import Tensor, nn
+from torch import Tensor, nn, LongTensor
 
 from neutone_sdk import (
     NeutoneModel,
@@ -25,13 +25,14 @@ class NonRealtimeBase(NeutoneModel):
         NeutoneParameterType.CONTINUOUS,
         NeutoneParameterType.CATEGORICAL,
         NeutoneParameterType.TEXT,
+        NeutoneParameterType.TOKENS,
     }
     # TorchScript typing does not support instance attributes, so we need to type them
     # as class attributes. This is required for supporting models with no parameters.
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
     # From NeutoneModel, sometimes TorchScript complains if there are not redefined here
     neutone_parameters_metadata: Dict[
-        str, Dict[str, Union[int, float, str, bool, List[str]]]
+        str, Dict[str, Union[int, float, str, bool, List[str], LongTensor]]
     ]
     remapped_params: Dict[str, Tensor]
     neutone_parameter_names: List[str]
@@ -43,6 +44,8 @@ class NonRealtimeBase(NeutoneModel):
     cat_param_n_values: Dict[str, int]
     text_param_max_n_chars: List[int]
     text_param_default_values: List[str]
+    tokens_param_max_n_tokens: List[int]
+    tokens_param_default_values: List[LongTensor]
 
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         """
@@ -62,6 +65,7 @@ class NonRealtimeBase(NeutoneModel):
         self.progress_percentage = 0.0
         self.cancel_forward_pass_requested = False
         self.has_text_param = False
+        self.has_tokens_param = False
 
         self.n_cont_params = 0
         self.cont_param_names = []
@@ -75,6 +79,10 @@ class NonRealtimeBase(NeutoneModel):
         self.n_text_params = 0
         self.text_param_max_n_chars = []
         self.text_param_default_values = []
+
+        self.n_tokens_params = 0
+        self.tokens_param_max_n_chars = []
+        self.tokens_param_default_values = []
 
         # We have to keep track of this manually since text params are separate
         numerical_param_idx = 0
@@ -98,6 +106,10 @@ class NonRealtimeBase(NeutoneModel):
                 self.n_text_params += 1
                 self.text_param_max_n_chars.append(p.max_n_chars)
                 self.text_param_default_values.append(p.default_value)
+            elif p.type == NeutoneParameterType.TOKENS:
+                self.n_tokens_params += 1
+                self.tokens_param_max_n_chars.append(p.max_n_tokens)
+                self.tokens_param_default_values.append(p.default_value)
 
         self.n_numerical_params = self.n_cont_params + self.n_cat_params
 
@@ -114,8 +126,14 @@ class NonRealtimeBase(NeutoneModel):
             f"Too many text parameters. "
             f"Max allowed is {constants.NEUTONE_GEN_N_TEXT_PARAMS}"
         )
+        assert self.n_tokens_params <= constants.NEUTONE_GEN_N_TOKENS_PARAMS, (
+            f"Too many tokens parameters. "
+            f"Max allowed is {constants.NEUTONE_GEN_N_TOKENS_PARAMS}"
+        )
         if self.n_text_params:
             self.has_text_param = True
+        if self.n_tokens_params:
+            self.has_tokens_param = True
 
         assert all(
             1 <= n <= 2 for n in self.get_audio_in_channels()
@@ -149,6 +167,7 @@ class NonRealtimeBase(NeutoneModel):
         return (
             constants.NEUTONE_GEN_N_NUMERICAL_PARAMS
             + constants.NEUTONE_GEN_N_TEXT_PARAMS
+            + constants.NEUTONE_GEN_N_TOKENS_PARAMS
         )
 
     def _get_numerical_default_param_values(
@@ -229,6 +248,7 @@ class NonRealtimeBase(NeutoneModel):
         audio_in: List[Tensor],
         cont_params: Dict[str, Tensor],
         text_params: List[str],
+        tokens_params: List[LongTensor],
     ) -> List[Tensor]:
         """
         SDK users can overwrite this method to implement the logic for their models.
@@ -254,6 +274,9 @@ class NonRealtimeBase(NeutoneModel):
             text_params:
                 List of strings containing the text parameters. Will be empty if the
                 model does not have any text parameters.
+            tokens_params:
+                List of long tensors containing the tokens. Will be empty if the
+                model does not have any tokens parameters.
 
         Returns:
             List of torch Tensors of shape [num_channels, num_samples] representing the
@@ -354,19 +377,21 @@ class NonRealtimeBase(NeutoneModel):
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
+        tokens_params: Optional[List[LongTensor]] = None,
     ) -> List[Tensor]:
         """
         Internal forward pass for a NonRealtimeBase wrapped model.
 
-        If `numerical_params` or `text_params` is None, they are populated with their
-        default values when applicable.
-
+        If `numerical_params`, `text_params` or `tokens_params` is None, they are populated
+        with their default values when applicable.
         This method should not be overwritten by SDK users.
         """
         self.set_progress_percentage(0.0)  # Reset progress percentage
 
         if text_params is None:
             text_params = self.text_param_default_values
+        if tokens_params is None:
+            tokens_params = self.tokens_param_default_values
 
         if self.use_debug_mode:
             assert len(audio_in) == len(self.get_audio_in_channels())
@@ -379,6 +404,15 @@ class NonRealtimeBase(NeutoneModel):
                         assert (
                             len(text) <= max_n_chars
                         ), f"Input text must be shorter than {max_n_chars} characters"
+            assert len(tokens_params) == self.n_tokens_params
+            if self.n_tokens_params:
+                for tokens, max_n_tokens in zip(
+                    tokens_params, self.tokens_param_max_n_tokens
+                ):
+                    if max_n_tokens != -1:
+                        assert (
+                            tokens.shape[-1] <= max_n_tokens
+                        ), f"Input tokens must be shorter than {max_n_tokens} characters"
 
         in_n = 1
         if audio_in:
@@ -438,7 +472,11 @@ class NonRealtimeBase(NeutoneModel):
             return []
 
         audio_out = self.do_forward_pass(
-            curr_block_idx, audio_in, remapped_numerical_params, text_params
+            curr_block_idx,
+            audio_in,
+            remapped_numerical_params,
+            text_params,
+            tokens_params,
         )
 
         if self.use_debug_mode:
@@ -537,6 +575,13 @@ class NonRealtimeBase(NeutoneModel):
         return self.has_text_param
 
     @tr.jit.export
+    def is_tokens_model(self) -> bool:
+        """
+        Returns True if the model has a tokens parameter.
+        """
+        return self.has_tokens_param
+
+    @tr.jit.export
     def get_current_model_sample_rate(self) -> int:
         """
         Returns the current sample rate of the model if it has been set, else None.
@@ -575,6 +620,7 @@ class NonRealtimeBase(NeutoneModel):
                 "should_cancel_forward_pass",
                 "request_cancel_forward_pass",
                 "is_text_model",
+                "is_tokens_model",
                 "get_current_model_sample_rate",
                 "get_current_model_buffer_size",
                 "get_model_bpm",
@@ -597,6 +643,7 @@ class NonRealtimeBase(NeutoneModel):
         core_metadata["audio_in_labels"] = self.get_audio_in_labels()
         core_metadata["audio_out_labels"] = self.get_audio_out_labels()
         core_metadata["is_text_model"] = self.is_text_model()
+        core_metadata["is_tokens_model"] = self.is_tokens_model()
         core_metadata["model_bpm"] = self.get_model_bpm()
         return core_metadata
 

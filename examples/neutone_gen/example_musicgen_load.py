@@ -1,0 +1,172 @@
+import torch
+import torch.nn as nn
+from typing import List, Tuple, Dict
+
+from neutone_sdk.non_realtime_wrapper import NonRealtimeBase
+from neutone_sdk import NeutoneParameter, DiscreteTokensNeutoneParameter, ContinuousNeutoneParameter
+from neutone_sdk.non_realtime_sqw import NonRealtimeSampleQueueWrapper
+
+# class MusicGenWrapperNoTok(nn.Module):
+#     def __init__(self, text_encoder, lm, audio_decoder, enc_to_dec_proj, logits_processor, pad_token_id: int, decoder_start_token_id: int, delay_mask_fn, num_codebooks: int, audio_channels: int):
+#         super().__init__()
+#         self.text_encoder = text_encoder
+#         self.audio_decoder = audio_decoder
+#         self.lm = lm
+#         self.decoder_start_token_id = decoder_start_token_id
+#         self.delay_mask_fn = delay_mask_fn
+#         self.num_codebooks = num_codebooks
+#         self.audio_channels = audio_channels
+#         self.enc_to_dec_proj = enc_to_dec_proj
+#         self.logits_processor = logits_processor
+#         self.pad_token_id = pad_token_id
+
+#     def prepare_text_encoder_kwargs_for_generation(self, input_ids):
+#         encoder_attention_mask = torch.where(input_ids==0, 0, 1)
+#         encoder_outputs = self.text_encoder(
+#             input_ids=input_ids,
+#             attention_mask=encoder_attention_mask,
+#         )['last_hidden_state']
+#         encoder_outputs = torch.concatenate([encoder_outputs, torch.zeros_like(encoder_outputs)], dim=0)
+#         encoder_attention_mask = torch.concatenate(
+#                     [encoder_attention_mask, torch.zeros_like(encoder_attention_mask)], dim=0
+#                 )
+#         return encoder_outputs, encoder_attention_mask
+
+#     def apply_delay_pattern_mask(self, input_ids, decoder_pad_token_mask):
+#         """Apply a delay pattern mask to the decoder input ids, only preserving predictions where
+#         the mask is set to -1, and otherwise setting to the value detailed in the mask."""
+#         seq_len = input_ids.shape[-1]
+#         decoder_pad_token_mask = decoder_pad_token_mask[..., :seq_len]
+#         input_ids = torch.where(decoder_pad_token_mask == -1, input_ids, decoder_pad_token_mask)
+#         return input_ids
+
+#     def prepare_inputs_for_generation(self, input_ids, encoder_outputs, delay_pattern_mask):
+#         input_ids = self.apply_delay_pattern_mask(input_ids, delay_pattern_mask)
+#         # for classifier free guidance we need to replicate the decoder args across the batch dim (we'll split these
+#         # before sampling)
+#         input_ids = input_ids.repeat((2, 1))
+#         return input_ids, encoder_outputs
+
+#     def prepare_decoder_input_ids_for_generation(self, batch_size: int):
+#         return torch.ones(batch_size * self.num_codebooks, 1, dtype=torch.long) * self.decoder_start_token_id
+
+#     def preprocess(self, text_ids: torch.Tensor, max_length: int)-> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+#         with torch.no_grad():
+#             batch_size = text_ids.shape[0]
+#             encoder_outputs, encoder_attention_mask = self.prepare_text_encoder_kwargs_for_generation(text_ids)
+#             encoder_outputs = self.enc_to_dec_proj(encoder_outputs)
+#             input_ids = self.prepare_decoder_input_ids_for_generation(batch_size)
+#             input_ids, delay_pattern_mask = self.delay_mask_fn(input_ids, self.decoder_start_token_id, max_length, self.num_codebooks, self.audio_channels)
+#         return input_ids, encoder_outputs, delay_pattern_mask, encoder_attention_mask
+    
+#     def sample_step(self, input_ids, encoder_outputs, delay_pattern_mask, encoder_attention_mask):
+#         i_ids, enc_out = self.prepare_inputs_for_generation(input_ids, encoder_outputs, delay_pattern_mask)
+#         outputs = self.lm(input_ids=i_ids, encoder_hidden_states=enc_out, encoder_attention_mask=encoder_attention_mask)
+#         next_token_logits = outputs['logits'][:, -1, :]
+#         # TODO temperature
+#         next_token_scores = self.logits_processor(input_ids, next_token_logits)
+#         probs = nn.functional.softmax(next_token_scores, dim=-1)
+#         next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+#         # update generated ids, model inputs, and length for next step
+#         input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+#         return input_ids # update input_ids in the next call
+    
+#     def postprocess(self, input_ids: torch.Tensor, delay_pattern_mask: torch.Tensor, text_ids: torch.Tensor):
+#         batch_size = text_ids.shape[0]
+#         output_ids = self.apply_delay_pattern_mask(input_ids, delay_pattern_mask)
+#         output_ids = output_ids[output_ids != self.decoder_start_token_id].reshape(
+#             batch_size, self.num_codebooks, -1
+#         )
+#         # append the frame dimension back to the audio codes
+#         output_ids = output_ids[None, ...]
+#         output_values = self.audio_decoder(output_ids)
+#         return output_values # update input_ids in the next call
+    
+#     def forward(self, text_ids: torch.Tensor, max_length: int):
+#         with torch.no_grad():
+#             input_ids, encoder_outputs, delay_pattern_mask, encoder_attention_mask = self.preprocess(text_ids, max_length)
+#             # sample
+#             for _ in range(max_length-1):
+#                 input_ids = self.sample_step(input_ids, encoder_outputs, delay_pattern_mask, encoder_attention_mask)
+#             output_values = self.postprocess(input_ids, delay_pattern_mask, text_ids)
+#         return output_values
+
+class NonRealtimeMusicGenModelWrapper(NonRealtimeBase):
+    def get_model_name(self) -> str:
+        return "MusicGen"
+
+    def get_model_authors(self) -> List[str]:
+        return ["Naotake Masuda"]
+
+    def get_model_short_description(self) -> str:
+        return ""
+
+    def get_model_long_description(self) -> str:
+        return ""
+
+    def get_technical_description(self) -> str:
+        return ""
+
+    def get_technical_links(self) -> Dict[str, str]:
+        return {
+            "Code": "https://github.com/QosmoInc/neutone_sdk/blob/main/examples/neutone_gen/example_clipper_gen.py"
+        }
+
+    def get_tags(self) -> List[str]:
+        return ["clipper"]
+
+    def get_model_version(self) -> str:
+        return "1.0.0"
+
+    def is_experimental(self) -> bool:
+        return False
+
+    def get_neutone_parameters(self) -> List[NeutoneParameter]:
+        return [
+            DiscreteTokensNeutoneParameter("texttokens", "tokens from a text tokenizer"),
+            ContinuousNeutoneParameter("outputlength", "number of output tokens", default_value=0.5)
+        ]
+
+    @torch.jit.export
+    def get_audio_in_channels(self) -> List[int]:
+        return [1]
+
+    @torch.jit.export
+    def get_audio_out_channels(self) -> List[int]:
+        return [1]
+
+    @torch.jit.export
+    def get_native_sample_rates(self) -> List[int]:
+        return [32000, ]  # Supports all sample rates
+
+    @torch.jit.export
+    def get_native_buffer_sizes(self) -> List[int]:
+        return []  # Supports all buffer sizes
+
+    @torch.jit.export
+    def is_one_shot_model(self) -> bool:
+        return True
+
+    def aggregate_continuous_params(self, cont_params: torch.Tensor) -> torch.Tensor:
+        return cont_params  # We want sample-level control, so no aggregation
+
+    def do_forward_pass(
+        self,
+        curr_block_idx: int,
+        audio_in: List[torch.Tensor],
+        knob_params: Dict[str, torch.Tensor],
+        text_params: List[str],
+        tokens_params: List[torch.Tensor] = None,
+    ) -> List[torch.Tensor]:
+        audio_out = []
+        output_length = int(knob_params[0].item()*200)
+        x = self.model.forward(tokens_params[0], output_length)
+        audio_out.append(x)
+        return audio_out
+        # return [self.model.forward(min_val, min_val, max_val, gain)]
+
+model = torch.jit.load('musicgen_scripted_notok.ts')
+audio = model(torch.tensor([[1687, 1946,    1]]), 100)
+wrapped = NonRealtimeMusicGenModelWrapper(model)
+fake_audio = torch.randn(1, 40000)
+wrapped.forward([fake_audio], torch.tensor([[0.5]]), tokens_params=torch.LongTensor([[1687, 1946,1]]))

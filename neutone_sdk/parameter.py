@@ -4,6 +4,8 @@ from abc import ABC
 from enum import Enum
 from typing import Union, Optional, List, Dict
 
+import torch
+
 from neutone_sdk import constants
 
 logging.basicConfig()
@@ -15,6 +17,7 @@ class NeutoneParameterType(Enum):
     CONTINUOUS = "continuous"
     CATEGORICAL = "categorical"
     TEXT = "text"
+    TOKENS = "tokens"
 
 
 class NeutoneParameter(ABC):
@@ -158,4 +161,39 @@ class TextNeutoneParameter(NeutoneParameter):
     def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
         metadata = super().to_metadata()
         metadata["max_n_chars"] = self.max_n_chars
+        return metadata
+
+
+class DiscreteTokensNeutoneParameter(NeutoneParameter):
+    """
+    Defines a discrete token tensor input to a Neutone model
+    Should be the output of a tokenizer that processes some text input.
+
+    The name and the description of the parameter will be shown as a tooltip
+    within the UI.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        max_n_tokens: int = -1,
+        default_value: Optional[torch.LongTensor] = None,
+        used: bool = True,
+    ):
+        super().__init__(
+            name, description, default_value, used, NeutoneParameterType.TOKENS
+        )
+        assert max_n_tokens >= -1, "`max_n_tokens` must be greater than or equal to -1"
+        if max_n_tokens != -1:
+            assert (
+                default_value.shape[-1] <= max_n_tokens
+            ), "`default_value` must be a string of length less than `max_n_tokens`"
+        self.max_n_tokens = max_n_tokens
+
+    def to_metadata(
+        self,
+    ) -> Dict[str, Union[int, float, str, bool, List[str], Optional[torch.LongTensor]]]:
+        metadata = super().to_metadata()
+        metadata["max_n_tokens"] = self.max_n_tokens
         return metadata

@@ -158,8 +158,11 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
+        tokens_params: Optional[List[Tensor]] = None,
     ) -> List[Tensor]:
-        return self.forward_non_realtime(audio_in, numerical_params, text_params)
+        return self.forward_non_realtime(
+            audio_in, numerical_params, text_params, tokens_params
+        )
 
     @tr.jit.export
     def forward_non_realtime(
@@ -167,6 +170,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
+        tokens_params: Optional[List[Tensor]] = None,
     ) -> List[Tensor]:
         # TODO(cm): this is a workaround for the C++ plugin inputting empty audio
         # tensors instead of an empty list
@@ -341,7 +345,11 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             if numerical_params_blocks is not None:
                 numerical_params_block = numerical_params_blocks[:, block_idx, :]
             audio_out_block = self.nrb.forward(
-                block_idx, audio_in_block, numerical_params_block, text_params
+                block_idx,
+                audio_in_block,
+                numerical_params_block,
+                text_params,
+                tokens_params,
             )
             audio_out_blocks.append(audio_out_block)
 
@@ -447,6 +455,10 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         return self.nrb.is_text_model()
 
     @tr.jit.export
+    def is_tokens_model(self) -> bool:
+        return self.nrb.is_tokens_model()
+
+    @tr.jit.export
     def reset(self) -> None:
         self.nrb.reset()
         self.block_percentage = 0.0
@@ -479,6 +491,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             "should_cancel_forward_pass",
             "request_cancel_forward_pass",
             "is_text_model",
+            "is_tokens_model",
             "reset",
             "get_current_model_sample_rate",
             "get_current_model_buffer_size",

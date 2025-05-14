@@ -81,7 +81,7 @@ class NonRealtimeBase(NeutoneModel):
         self.text_param_default_values = []
 
         self.n_tokens_params = 0
-        self.tokens_param_max_n_chars = []
+        self.tokens_param_max_n_tokens = []
         self.tokens_param_default_values = []
 
         # We have to keep track of this manually since text params are separate
@@ -108,7 +108,7 @@ class NonRealtimeBase(NeutoneModel):
                 self.text_param_default_values.append(p.default_value)
             elif p.type == NeutoneParameterType.TOKENS:
                 self.n_tokens_params += 1
-                self.tokens_param_max_n_chars.append(p.max_n_tokens)
+                self.tokens_param_max_n_tokens.append(p.max_n_tokens)
                 self.tokens_param_default_values.append(p.default_value)
 
         self.n_numerical_params = self.n_cont_params + self.n_cat_params

@@ -380,8 +380,11 @@ class NonRealtimeBase(NeutoneModel):
                             len(text) <= max_n_chars
                         ), f"Input text must be shorter than {max_n_chars} characters"
 
-        in_n = 1
+        in_n = self.current_model_buffer_size
+        if numerical_params is not None:
+            in_n = numerical_params.size(1)
         if audio_in:
+            # Audio takes priority for determining in_n
             in_n = audio_in[0].size(1)
 
         if numerical_params is None and self.n_numerical_params > 0:

@@ -8,12 +8,11 @@ from torch import Tensor, nn
 from torch import Tensor as T
 
 from neutone_sdk import (
-    DEFAULT_DAW_BS,
-    DEFAULT_DAW_SR,
     ChannelNormalizerSandwich,
     Inplace4pHermiteResampler,
     InplaceLinearResampler,
     utils,
+    constants,
 )
 from neutone_sdk.non_realtime_wrapper import NonRealtimeBase
 
@@ -26,8 +25,8 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
     def __init__(
         self,
         nrb: NonRealtimeBase,
-        daw_sr: int = DEFAULT_DAW_SR,
-        daw_bs: int = DEFAULT_DAW_BS,
+        daw_sr: int = constants.DEFAULT_DAW_SR,
+        daw_bs: int = constants.DEFAULT_DAW_BS,
         use_debug_mode: bool = True,
     ) -> None:
         """
@@ -110,35 +109,44 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
     @tr.jit.export
     def set_daw_sample_rate_and_buffer_size(
         self,
-        daw_sr: int,
-        daw_bs: int,
+        daw_sr: Optional[int] = None,
+        daw_bs: Optional[int] = None,
         model_sr: Optional[int] = None,
         model_bs: Optional[int] = None,
     ) -> int:
-        # Only sample rate is adjusted here, but we keep the interface of the SQW
+        # Use _val to prevent rebinding errors in TorchScript
+        # We cannot use `not daw_sr` here because of TorchScript
+        if daw_sr is None or daw_sr == 0:
+            # Use default sample rate if not provided
+            daw_sr_val = constants.DEFAULT_DAW_SR
+        else:
+            daw_sr_val = daw_sr
+        if daw_bs is None or daw_bs == 0:
+            # Use default buffer size if not provided
+            daw_bs_val = constants.DEFAULT_DAW_BS
+        else:
+            daw_bs_val = daw_bs
         if model_sr is not None:
             if self.use_debug_mode:
-                assert (
-                    len(self.get_native_sample_rates()) == 0
-                    or model_sr in self.get_native_sample_rates()
-                )
+                if self.get_native_sample_rates():
+                    assert model_sr in self.get_native_sample_rates()
+            model_sr_val = model_sr
         else:
-            model_sr = utils.select_best_model_sr(
-                daw_sr, self.get_native_sample_rates()
+            model_sr_val = utils.select_best_model_sr(
+                daw_sr_val, self.get_native_sample_rates()
             )
         if model_bs is not None:
             if self.use_debug_mode:
-                assert (
-                    len(self.get_native_buffer_sizes()) == 0
-                    or model_bs in self.get_native_buffer_sizes()
-                )
+                if self.get_native_buffer_sizes():
+                    assert model_bs in self.get_native_buffer_sizes()
+            model_bs_val = model_bs
         else:
-            model_bs = utils.select_best_model_buffer_size(
-                daw_bs, self.get_native_buffer_sizes()
+            model_bs_val = utils.select_best_model_buffer_size(
+                daw_bs_val, self.get_native_buffer_sizes()
             )
-        self.daw_sr = daw_sr
+        self.daw_sr = daw_sr_val
         self.reset()
-        self.nrb.set_sample_rate_and_buffer_size(model_sr, model_bs)
+        self.nrb.set_sample_rate_and_buffer_size(model_sr_val, model_bs_val)
         return -1  # We return -1 just to match the interface of the SQW
 
     @tr.jit.export
@@ -160,6 +168,15 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
     ) -> List[Tensor]:
+        # TODO(cm): this is a workaround for the C++ plugin inputting empty audio
+        # tensors instead of an empty list
+        if not self.get_audio_in_channels():
+            audio_in = []
+        if self.nrb.n_numerical_params == 0:
+            numerical_params = None
+        if self.nrb.n_text_params == 0:
+            text_params = None
+
         if self.use_debug_mode:
             assert len(audio_in) == self.n_in_tracks
             in_n_samples = 0

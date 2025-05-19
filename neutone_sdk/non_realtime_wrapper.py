@@ -479,6 +479,8 @@ class NonRealtimeBase(NeutoneModel):
             successful, otherwise False.
         """
         if self.use_debug_mode:
+            assert sample_rate > 0
+            assert n_samples > 0
             if self.get_native_sample_rates():
                 assert (
                     sample_rate in self.get_native_sample_rates()

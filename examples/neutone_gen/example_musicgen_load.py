@@ -1,3 +1,5 @@
+import logging
+import os
 import torch
 import torch.nn as nn
 from typing import List, Tuple, Dict
@@ -7,6 +9,10 @@ from neutone_sdk import NeutoneParameter, DiscreteTokensNeutoneParameter, Contin
 from neutone_sdk.non_realtime_sqw import NonRealtimeSampleQueueWrapper
 
 import torchaudio
+
+logging.basicConfig()
+log = logging.getLogger(__name__)
+log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
 # class MusicGenWrapperNoTok(nn.Module):
 #     def __init__(self, text_encoder, lm, audio_decoder, enc_to_dec_proj, logits_processor, pad_token_id: int, decoder_start_token_id: int, delay_mask_fn, num_codebooks: int, audio_channels: int):
@@ -125,8 +131,16 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeBase):
 
     def get_neutone_parameters(self) -> List[NeutoneParameter]:
         return [
-            DiscreteTokensNeutoneParameter("texttokens", "tokens from a text tokenizer"),
-            ContinuousNeutoneParameter("outputlength", "number of output tokens", default_value=0.5)
+            DiscreteTokensNeutoneParameter(
+                "texttokens",
+                "tokens from a text tokenizer",
+                default_value=torch.LongTensor(
+                    [[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]]
+                ),
+            ),
+            ContinuousNeutoneParameter(
+                "outputlength", "number of output tokens", default_value=0.5
+            ),
         ]
 
     @torch.jit.export
@@ -139,7 +153,7 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeBase):
 
     @torch.jit.export
     def get_native_sample_rates(self) -> List[int]:
-        return [32000, ]  # Supports all sample rates
+        return [32000]
 
     @torch.jit.export
     def get_native_buffer_sizes(self) -> List[int]:
@@ -158,24 +172,53 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeBase):
         audio_in: List[torch.Tensor],
         knob_params: Dict[str, torch.Tensor],
         text_params: List[str],
-        tokens_params: List[torch.Tensor] = None,
+        tokens_params: List[torch.Tensor],
     ) -> List[torch.Tensor]:
         audio_out = []
-        output_length = int(knob_params["outputlength"].item() * 500)
+        output_length = int(knob_params["outputlength"].mean() * 500)
         x = self.model.forward(tokens_params[0], output_length)
         audio_out.append(x.squeeze(1))
         return audio_out
         # return [self.model.forward(min_val, min_val, max_val, gain)]
 
+
 model = torch.jit.load('musicgen_scripted_notok.ts')
 # audio = model(torch.tensor([[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]]), 100)
 wrapped = NonRealtimeMusicGenModelWrapper(model)
-out_audio = wrapped.forward(
-    0,
+# out_audio = wrapped.forward(
+#     0,
+#     [],
+#     torch.ones(1, 2048) * 0.2,
+#     tokens_params=[
+#         torch.LongTensor([[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]])
+#     ],
+# )
+# torchaudio.save("out.wav", out_audio[0], sample_rate=32000)
+sqw = NonRealtimeSampleQueueWrapper(wrapped)
+out = sqw.forward_non_realtime(
     [],
-    torch.tensor([[0.2]]),
+    torch.ones(1, 2048) * 0.2,
     tokens_params=[
+        # "80s pop track with bassy drums and synth"
         torch.LongTensor([[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]])
     ],
 )
-torchaudio.save("out.wav", out_audio[0], sample_rate=32000)
+sqw.reset()
+sqw.prepare_for_inference()
+log.info(f"   out[0].shape: {out[0].shape}")
+log.info(f"   out: {out}")
+ts = torch.jit.script(sqw)
+n_samples = 2048
+out_ts = ts.forward_non_realtime(
+    [],
+    torch.ones(1, 2048) * 0.2,
+    tokens_params=[
+        # 90s rock song with loud guitars and heavy drums"
+        torch.LongTensor(
+            [[2777, 7, 2480, 2324, 28, 8002, 5507, 7, 11, 2437, 5253, 7, 1]]
+        )
+    ],
+)
+log.info(f"out_ts[0].shape: {out_ts[0].shape}")
+log.info(f"out_ts: {out_ts}")
+torchaudio.save("out_ts.wav", out_ts[0], sample_rate=32000)

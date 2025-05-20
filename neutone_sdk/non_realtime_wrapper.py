@@ -155,8 +155,26 @@ class NonRealtimeBase(NeutoneModel):
             ), "No. of output audio labels must match no. of output audio channels"
 
         # Save metadata JSON
+        metadata = self.to_metadata()
+
+        def convert_longtensors_to_lists(data_structure):
+            if isinstance(data_structure, dict):
+                new_dict = {}
+                for key, value in data_structure.items():
+                    new_dict[key] = convert_longtensors_to_lists(value)
+                return new_dict
+            elif isinstance(data_structure, list):
+                new_list = []
+                for item in data_structure:
+                    new_list.append(convert_longtensors_to_lists(item))
+                return new_list
+            elif isinstance(data_structure, tr.LongTensor):
+                return data_structure.tolist()
+            else:
+                return data_structure
+
         self.metadata_json_str = json.dumps(
-            self.to_metadata(), indent=4, sort_keys=True
+            convert_longtensors_to_lists(metadata), indent=4, sort_keys=True
         )
 
     def _get_max_n_params(self) -> int:

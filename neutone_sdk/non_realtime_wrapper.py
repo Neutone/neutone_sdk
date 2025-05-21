@@ -84,6 +84,8 @@ class NonRealtimeBase(NeutoneModel):
         self.tokens_param_max_n_tokens = []
         self.tokens_param_default_values = []
 
+        self.has_tokenizer = False
+
         # We have to keep track of this manually since text params are separate
         numerical_param_idx = 0
         for p in self.get_neutone_parameters():
@@ -650,6 +652,7 @@ class NonRealtimeBase(NeutoneModel):
                 "get_preserved_attributes",
                 "to_metadata",
                 "get_metadata_json",
+                "get_tokenizer_json",
             ]
         )
         return preserved_attrs
@@ -673,3 +676,23 @@ class NonRealtimeBase(NeutoneModel):
     @tr.jit.export
     def get_metadata_json(self) -> str:
         return self.metadata_json_str
+
+    @tr.jit.export
+    def get_tokenizer_json(self) -> str:
+        return ""
+
+
+class NonRealtimeTokenizerBase(NonRealtimeBase):
+    def __init__(
+        self,
+        model: nn.Module,
+        tokenizer_json_str: str,
+        use_debug_mode: bool = True,
+    ) -> None:
+        super().__init__(model, use_debug_mode)
+        self.tokenizer_json_str = tokenizer_json_str
+        self.has_tokenizer = True
+
+    @tr.jit.export
+    def get_tokenizer_json(self) -> str:
+        return self.tokenizer_json_str

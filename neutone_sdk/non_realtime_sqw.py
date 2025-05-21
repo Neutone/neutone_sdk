@@ -499,6 +499,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             "get_preserved_attributes",
             "to_metadata",
             "get_metadata_json",
+            "get_tokenizer_json",
             "get_default_param_values",
         ]
 
@@ -509,6 +510,10 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
     @tr.jit.export
     def get_metadata_json(self) -> str:
         return self.nrb.get_metadata_json()
+
+    @tr.jit.export
+    def get_tokenizer_json(self) -> str:
+        return self.nrb.get_tokenizer_json()
 
     @tr.jit.export
     def get_default_param_values(self) -> Tensor:

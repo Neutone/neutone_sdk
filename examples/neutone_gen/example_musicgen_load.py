@@ -1,10 +1,9 @@
-import logging
-import os
+import logging, os, argparse, pathlib, json
 import torch
 import torch.nn as nn
 from typing import List, Tuple, Dict
 
-from neutone_sdk.non_realtime_wrapper import NonRealtimeBase
+from neutone_sdk.non_realtime_wrapper import NonRealtimeTokenizerBase
 from neutone_sdk import NeutoneParameter, DiscreteTokensNeutoneParameter, ContinuousNeutoneParameter
 from neutone_sdk.non_realtime_sqw import NonRealtimeSampleQueueWrapper
 
@@ -99,7 +98,8 @@ log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 #             output_values = self.postprocess(input_ids, delay_pattern_mask, text_ids)
 #         return output_values
 
-class NonRealtimeMusicGenModelWrapper(NonRealtimeBase):
+
+class NonRealtimeMusicGenModelWrapper(NonRealtimeTokenizerBase):
     def get_model_name(self) -> str:
         return "MusicGen"
 
@@ -182,43 +182,48 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeBase):
         # return [self.model.forward(min_val, min_val, max_val, gain)]
 
 
-model = torch.jit.load('musicgen_scripted_notok.ts')
-# audio = model(torch.tensor([[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]]), 100)
-wrapped = NonRealtimeMusicGenModelWrapper(model)
-# out_audio = wrapped.forward(
-#     0,
-#     [],
-#     torch.ones(1, 2048) * 0.2,
-#     tokens_params=[
-#         torch.LongTensor([[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]])
-#     ],
-# )
-# torchaudio.save("out.wav", out_audio[0], sample_rate=32000)
-sqw = NonRealtimeSampleQueueWrapper(wrapped)
-out = sqw.forward_non_realtime(
-    [],
-    torch.ones(1, 2048) * 0.2,
-    tokens_params=[
-        # "80s pop track with bassy drums and synth"
-        torch.LongTensor([[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]])
-    ],
-)
-sqw.reset()
-sqw.prepare_for_inference()
-log.info(f"   out[0].shape: {out[0].shape}")
-log.info(f"   out: {out}")
-ts = torch.jit.script(sqw)
-n_samples = 2048
-out_ts = ts.forward_non_realtime(
-    [],
-    torch.ones(1, 2048) * 0.2,
-    tokens_params=[
-        # 90s rock song with loud guitars and heavy drums"
-        torch.LongTensor(
-            [[2777, 7, 2480, 2324, 28, 8002, 5507, 7, 11, 2437, 5253, 7, 1]]
-        )
-    ],
-)
-log.info(f"out_ts[0].shape: {out_ts[0].shape}")
-log.info(f"out_ts: {out_ts}")
-torchaudio.save("out_ts.wav", out_ts[0], sample_rate=32000)
+if __name__ == "__main__":
+    from tokenizers import Tokenizer
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", default="musicgen-model", type=str)
+    args = parser.parse_args()
+
+    model = torch.jit.load(pathlib.Path(args.model) / "musicgen_scripted_notok.ts")
+    tok_path = str(pathlib.Path(args.model) / "tokenizer.json")
+    tokenizer = Tokenizer.from_file(tok_path)
+    with open(tok_path, "r", encoding="utf-8") as f:
+        json_string = json.dumps(json.load(f), ensure_ascii=True)
+    wrapped = NonRealtimeMusicGenModelWrapper(model, json_string)
+    tokens = tokenizer.encode("80s pop track with bassy drums and synth").ids
+
+    sqw = NonRealtimeSampleQueueWrapper(wrapped)
+    out = sqw.forward_non_realtime(
+        [],
+        torch.ones(1, 2048) * 0.2,
+        tokens_params=[
+            # "80s pop track with bassy drums and synth"
+            # torch.LongTensor(
+            #     [[2775, 7, 2783, 1463, 28, 7981, 63, 5253, 7, 11, 13353, 1]]
+            # )
+            torch.LongTensor([tokens])
+        ],
+    )
+    sqw.reset()
+    sqw.prepare_for_inference()
+    log.info(f"   out[0].shape: {out[0].shape}")
+    log.info(f"   out: {out}")
+    ts = torch.jit.script(sqw)
+    n_samples = 2048
+    tokens = tokenizer.encode("90s rock song with loud guitars and heavy drums").ids
+    out_ts = ts.forward_non_realtime(
+        [],
+        torch.ones(1, 2048) * 0.2,
+        tokens_params=[torch.LongTensor([tokens])],
+    )
+    log.info(f"out_ts[0].shape: {out_ts[0].shape}")
+    log.info(f"out_ts: {out_ts}")
+    torchaudio.save("out_ts.wav", out_ts[0], sample_rate=32000)
+    torch.jit.save(ts, pathlib.Path(args.model) / "wrapped-musicgen.ts")
+    model = torch.jit.load(pathlib.Path(args.model) / "wrapped-musicgen.ts")
+    print(model.get_tokenizer_json())

@@ -158,7 +158,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
-        tokens_params: Optional[List[Tensor]] = None,
+        tokens_params: Optional[List[List[int]]] = None,
     ) -> List[Tensor]:
         return self.forward_non_realtime(
             audio_in, numerical_params, text_params, tokens_params
@@ -170,7 +170,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
-        tokens_params: Optional[List[Tensor]] = None,
+        tokens_params: Optional[List[List[int]]] = None,
     ) -> List[Tensor]:
         # TODO(cm): this is a workaround for the C++ plugin inputting empty audio
         # tensors instead of an empty list
@@ -180,6 +180,8 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             numerical_params = None
         if self.nrb.n_text_params == 0:
             text_params = None
+        if self.nrb.n_tokens_params == 0:
+            tokens_params = None
 
         if self.use_debug_mode:
             assert len(audio_in) == self.n_in_tracks

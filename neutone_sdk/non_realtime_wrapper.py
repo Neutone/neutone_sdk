@@ -5,7 +5,7 @@ from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch as tr
-from torch import Tensor, nn, LongTensor
+from torch import Tensor, nn
 
 from neutone_sdk import (
     NeutoneModel,
@@ -32,7 +32,7 @@ class NonRealtimeBase(NeutoneModel):
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
     # From NeutoneModel, sometimes TorchScript complains if there are not redefined here
     neutone_parameters_metadata: Dict[
-        str, Dict[str, Union[int, float, str, bool, List[str], LongTensor]]
+        str, Dict[str, Union[int, float, str, bool, List[str], List[int]]]
     ]
     remapped_params: Dict[str, Tensor]
     neutone_parameter_names: List[str]
@@ -45,7 +45,7 @@ class NonRealtimeBase(NeutoneModel):
     text_param_max_n_chars: List[int]
     text_param_default_values: List[str]
     tokens_param_max_n_tokens: List[int]
-    tokens_param_default_values: List[LongTensor]
+    tokens_param_default_values: List[List[int]]
 
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         """
@@ -156,27 +156,8 @@ class NonRealtimeBase(NeutoneModel):
                 self.get_audio_out_channels()
             ), "No. of output audio labels must match no. of output audio channels"
 
-        # Save metadata JSON
-        metadata = self.to_metadata()
-
-        def convert_longtensors_to_lists(data_structure):
-            if isinstance(data_structure, dict):
-                new_dict = {}
-                for key, value in data_structure.items():
-                    new_dict[key] = convert_longtensors_to_lists(value)
-                return new_dict
-            elif isinstance(data_structure, list):
-                new_list = []
-                for item in data_structure:
-                    new_list.append(convert_longtensors_to_lists(item))
-                return new_list
-            elif isinstance(data_structure, tr.LongTensor):
-                return data_structure.tolist()
-            else:
-                return data_structure
-
         self.metadata_json_str = json.dumps(
-            convert_longtensors_to_lists(metadata), indent=4, sort_keys=True
+            self.to_metadata(), indent=4, sort_keys=True
         )
 
     def _get_max_n_params(self) -> int:
@@ -268,7 +249,7 @@ class NonRealtimeBase(NeutoneModel):
         audio_in: List[Tensor],
         cont_params: Dict[str, Tensor],
         text_params: List[str],
-        tokens_params: List[LongTensor],
+        tokens_params: List[List[int]],
     ) -> List[Tensor]:
         """
         SDK users can overwrite this method to implement the logic for their models.
@@ -295,7 +276,7 @@ class NonRealtimeBase(NeutoneModel):
                 List of strings containing the text parameters. Will be empty if the
                 model does not have any text parameters.
             tokens_params:
-                List of long tensors containing the tokens. Will be empty if the
+                List of list of ints containing the tokens. Will be empty if the
                 model does not have any tokens parameters.
 
         Returns:
@@ -397,7 +378,7 @@ class NonRealtimeBase(NeutoneModel):
         audio_in: List[Tensor],
         numerical_params: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
-        tokens_params: Optional[List[LongTensor]] = None,
+        tokens_params: Optional[List[List[int]]] = None,
     ) -> List[Tensor]:
         """
         Internal forward pass for a NonRealtimeBase wrapped model.
@@ -431,8 +412,8 @@ class NonRealtimeBase(NeutoneModel):
                 ):
                     if max_n_tokens != -1:
                         assert (
-                            tokens.shape[-1] <= max_n_tokens
-                        ), f"Input tokens must be shorter than {max_n_tokens} characters"
+                            len(tokens) <= max_n_tokens
+                        ), f"Input tokens must be shorter than {max_n_tokens}"
 
         in_n = self.current_model_buffer_size
         if numerical_params is not None:

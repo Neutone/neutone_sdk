@@ -503,7 +503,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             "get_metadata_json",
             "get_tokenizer_str",
             "get_tokenizer_type",
-            "get_default_param_values",
+            "get_numerical_params_default_values_0to1",
         ]
 
     @tr.jit.export
@@ -523,5 +523,5 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         return self.nrb.get_tokenizer_type()
 
     @tr.jit.export
-    def get_default_param_values(self) -> Tensor:
-        return self.nrb.get_default_param_values()
+    def get_numerical_params_default_values_0to1(self) -> Tensor:
+        return self.nrb.get_numerical_params_default_values_0to1()

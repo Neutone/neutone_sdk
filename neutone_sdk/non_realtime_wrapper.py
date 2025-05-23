@@ -41,14 +41,6 @@ class NonRealtimeBase(NeutoneModel):
     neutone_parameters_metadata: Dict[
         str, Dict[str, Union[int, float, str, bool, List[str], List[int]]]
     ]
-    remapped_params: Dict[str, Tensor]
-    neutone_parameter_names: List[str]
-    # From this class
-    cont_param_names: List[str]
-    cont_param_indices: List[int]
-    cat_param_names: List[str]
-    cat_param_indices: List[int]
-    cat_param_n_values: Dict[str, int]
     text_param_max_n_chars: List[int]
     text_param_default_values: List[str]
     tokens_param_max_n_tokens: List[int]
@@ -74,15 +66,6 @@ class NonRealtimeBase(NeutoneModel):
         self.has_text_param = False
         self.has_tokens_param = False
 
-        self.n_cont_params = 0
-        self.cont_param_names = []
-        self.cont_param_indices = []
-
-        self.n_cat_params = 0
-        self.cat_param_names = []
-        self.cat_param_indices = []
-        self.cat_param_n_values = {}
-
         self.n_text_params = 0
         self.text_param_max_n_chars = []
         self.text_param_default_values = []
@@ -93,24 +76,16 @@ class NonRealtimeBase(NeutoneModel):
 
         self.has_tokenizer = False
 
-        # We have to keep track of this manually since text params are separate
-        numerical_param_idx = 0
+        self.numerical_params = nn.ModuleList()
         for p in self.get_neutone_parameters():
             assert p.type in self.ALLOWED_PARAM_TYPES, (
                 f"Parameter type {p.type} is not allowed. "
                 f"Allowed types are {self.ALLOWED_PARAM_TYPES}"
             )
             if p.type == NeutoneParameterType.CONTINUOUS:
-                self.n_cont_params += 1
-                self.cont_param_names.append(p.name)
-                self.cont_param_indices.append(numerical_param_idx)
-                numerical_param_idx += 1
+                self.numerical_params.append(p)
             elif p.type == NeutoneParameterType.CATEGORICAL:
-                self.n_cat_params += 1
-                self.cat_param_names.append(p.name)
-                self.cat_param_indices.append(numerical_param_idx)
-                self.cat_param_n_values[p.name] = p.n_values
-                numerical_param_idx += 1
+                self.numerical_params.append(p)
             elif p.type == NeutoneParameterType.TEXT:
                 self.n_text_params += 1
                 self.text_param_max_n_chars.append(p.max_n_chars)
@@ -119,13 +94,16 @@ class NonRealtimeBase(NeutoneModel):
                 self.n_tokens_params += 1
                 self.tokens_param_max_n_tokens.append(p.max_n_tokens)
                 self.tokens_param_default_values.append(p.default_value)
+        self.n_numerical_params = len(self.numerical_params)
 
-        self.n_numerical_params = self.n_cont_params + self.n_cat_params
-
-        assert self.get_default_param_values().size(0) == self.n_numerical_params, (
+        assert (
+            self.get_numerical_params_default_values_0to1().size(0)
+            == self.n_numerical_params
+        ), (
             f"Default parameter values tensor first dimension must have the same  "
             f"size as the number of numerical parameters. Expected size "
-            f"{self.n_numerical_params}, got {self.get_default_param_values().size(0)}"
+            f"{self.n_numerical_params}, "
+            f"got {self.get_numerical_params_default_values_0to1().size(0)}"
         )
         assert self.n_numerical_params <= constants.NEUTONE_GEN_N_NUMERICAL_PARAMS, (
             f"Too many numerical (continuous and categorical) parameters. "
@@ -178,22 +156,22 @@ class NonRealtimeBase(NeutoneModel):
             + constants.NEUTONE_GEN_N_TOKENS_PARAMS
         )
 
-    def _get_numerical_default_param_values(
+    def _get_numerical_params_default_values_0to1(
         self,
-    ) -> List[Tuple[str, Union[float, int]]]:
+    ) -> Tensor:
         """
-        Returns a list of tuples containing the name and default value of each
-        numerical (float or int) parameter.
+        Returns a float tensor with the default values of the numerical parameters
+        in the range [0, 1].
         For NonRealtimeBase models, the default values for the text parameters are
         ignored since these are not numerical and are handled separately.
         """
         result = []
         for p in self.get_neutone_parameters():
             if p.type == NeutoneParameterType.CONTINUOUS:
-                result.append((p.name, p.default_value))
+                result.append(p.default_value_0to1)
             elif p.type == NeutoneParameterType.CATEGORICAL:
-                # Convert to float to match the type of the continuous parameters
-                result.append((p.name, float(p.default_value)))
+                result.append(p.default_value_0to1)
+        result = tr.tensor(result)
         return result
 
     @abstractmethod
@@ -254,7 +232,7 @@ class NonRealtimeBase(NeutoneModel):
         self,
         curr_block_idx: int,
         audio_in: List[Tensor],
-        cont_params: Dict[str, Tensor],
+        numerical_params: Dict[str, Tensor],
         text_params: List[str],
         tokens_params: List[List[int]],
     ) -> List[Tensor]:
@@ -272,13 +250,12 @@ class NonRealtimeBase(NeutoneModel):
                 `get_native_buffer_sizes()` if not a one-shot model.
                 The sample rate of the audio will also be one of the ones specified in
                 `get_native_sample_rates()`.
-            cont_params:
+            numerical_params:
                 Python dictionary mapping from continuous and categorical (numerical)
                 parameter names (defined by the values in `get_neutone_parameters()` to
                 values. By default, we aggregate the parameters to a single value per
                 parameter for the current audio being processed.
-                Overwrite `aggregate_continuous_params` and
-                `aggregate_categorical_params` for more fine-grained control.
+                Overwrite `aggregate_numerical_params_0to1` for fine-grained control.
             text_params:
                 List of strings containing the text parameters. Will be empty if the
                 model does not have any text parameters.
@@ -323,29 +300,18 @@ class NonRealtimeBase(NeutoneModel):
         """
         return False
 
-    def aggregate_continuous_params(self, cont_params: Tensor) -> Tensor:
+    def aggregate_numerical_params_0to1(self, numerical_params_0to1: Tensor) -> Tensor:
         """
-        Aggregates parameters of shape (n_cont_params, buffer_size) to single values.
+        Aggregates parameters of shape (n_numerical_params, buffer_size) to single
+        values.
 
         By default we take the mean value along dimension 1 to provide a single value
         for each parameter for the current buffer.
         For more fine-grained control, override this method as required.
         """
         if self.use_debug_mode:
-            assert cont_params.ndim == 2
-        return tr.mean(cont_params, dim=1, keepdim=True)
-
-    def aggregate_categorical_params(self, cat_params: Tensor) -> Tensor:
-        """
-        Aggregates parameters of shape (n_cat_params, buffer_size) to single values.
-
-        By default we take the first value for each parameter for the current buffer.
-        For more fine-grained control, override this method as required.
-        """
-        if self.use_debug_mode:
-            assert cat_params.ndim == 2
-        agg_params, _ = tr.median(cat_params, dim=1, keepdim=True)
-        return agg_params
+            assert numerical_params_0to1.ndim == 2
+        return tr.mean(numerical_params_0to1, dim=1, keepdim=True)
 
     def set_progress_percentage(self, progress_percentage: float) -> None:
         """
@@ -383,7 +349,7 @@ class NonRealtimeBase(NeutoneModel):
         self,
         curr_block_idx: int,
         audio_in: List[Tensor],
-        numerical_params: Optional[Tensor] = None,
+        numerical_params_0to1: Optional[Tensor] = None,
         text_params: Optional[List[str]] = None,
         tokens_params: Optional[List[List[int]]] = None,
     ) -> List[Tensor]:
@@ -422,62 +388,49 @@ class NonRealtimeBase(NeutoneModel):
                             len(tokens) <= max_n_tokens
                         ), f"Input tokens must be shorter than {max_n_tokens}"
 
+        # Default value for in_n is the current model buffer size
         in_n = self.current_model_buffer_size
-        if numerical_params is not None:
-            in_n = numerical_params.size(1)
+        if numerical_params_0to1 is not None:
+            # If numerical_params_0to1 is provided, we use its size to determine in_n
+            in_n = numerical_params_0to1.size(1)
         if audio_in:
-            # Audio takes priority for determining in_n
+            # If audio_in is provided, we use its size to determine in_n
             in_n = audio_in[0].size(1)
 
-        if numerical_params is None and self.n_numerical_params > 0:
+        if numerical_params_0to1 is None and self.n_numerical_params > 0:
             # The default params come in as one value per block by default but for
             # compatibility with the plugin inputs we repeat them for the size of the
             # buffer. This allocates memory but should never happen in the VST since it
             # always passes parameters.
-            numerical_params = self.get_default_param_values().repeat(1, in_n)
+            numerical_params_0to1 = (
+                self.get_numerical_params_default_values_0to1().repeat(1, in_n)
+            )
 
         if self.use_debug_mode:
-            if numerical_params is not None:
-                assert numerical_params.size(0) == self.n_numerical_params
+            if numerical_params_0to1 is not None:
+                assert numerical_params_0to1.size(0) == self.n_numerical_params
                 if audio_in:
-                    assert numerical_params.size(1) == in_n
+                    assert numerical_params_0to1.size(1) == in_n
             if not self.is_one_shot_model() and self.get_native_buffer_sizes():
                 assert (
                     in_n in self.get_native_buffer_sizes()
                 ), f"The model does not support a buffer size of {in_n}"
 
         remapped_numerical_params = {}
-
-        if numerical_params is not None:
-            # Aggregate and remap the continuous parameters
-            if self.n_cont_params > 0:
-                cont_params = numerical_params[self.cont_param_indices, :]
-                cont_params = self.aggregate_continuous_params(cont_params)
-                if self.use_debug_mode:
-                    assert cont_params.ndim == 2
-                    assert cont_params.size(0) == self.n_cont_params
-                for idx in range(self.n_cont_params):
-                    if self.use_debug_mode:
-                        assert (cont_params[idx] >= 0.0).all()
-                        assert (cont_params[idx] <= 1.0).all()
-                    remapped_numerical_params[self.cont_param_names[idx]] = cont_params[
-                        idx
-                    ]
-            # Aggregate and remap the categorical parameters
-            if self.n_cat_params > 0:
-                cat_params = numerical_params[self.cat_param_indices, :]
-                cat_params = self.aggregate_categorical_params(cat_params)
-                if self.use_debug_mode:
-                    assert cat_params.ndim == 2
-                    assert cat_params.size(0) == self.n_cat_params
-                for idx in range(self.n_cat_params):
-                    if self.use_debug_mode:
-                        n_values = self.cat_param_n_values[self.cat_param_names[idx]]
-                        assert (cat_params[idx].int() >= 0).all()
-                        assert (cat_params[idx].int() <= n_values).all()
-                    remapped_numerical_params[self.cat_param_names[idx]] = cat_params[
-                        idx
-                    ].int()
+        if numerical_params_0to1 is not None:
+            # Aggregate and remap the numerical parameters
+            numerical_params_0to1 = self.aggregate_numerical_params_0to1(
+                numerical_params_0to1
+            )
+            if self.use_debug_mode:
+                assert numerical_params_0to1.ndim == 2
+                assert numerical_params_0to1.size(0) == self.n_numerical_params
+                assert (numerical_params_0to1 >= 0.0).all()
+                assert (numerical_params_0to1 <= 1.0).all()
+            for idx, curr_param in enumerate(self.numerical_params):
+                curr_val_0to1 = numerical_params_0to1[idx]
+                curr_val = curr_param.from_0to1(curr_val_0to1)
+                remapped_numerical_params[curr_param.name] = curr_val
 
         if self.should_cancel_forward_pass():
             return []

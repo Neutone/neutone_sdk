@@ -4,6 +4,8 @@ from abc import ABC
 from enum import Enum
 from typing import Union, Optional, List, Dict
 
+from torch import Tensor as T, nn
+import torch as tr
 from neutone_sdk import constants
 
 logging.basicConfig()
@@ -18,7 +20,7 @@ class NeutoneParameterType(Enum):
     TOKENS = "tokens"
 
 
-class NeutoneParameter(ABC):
+class NeutoneParameter(ABC, nn.Module):
     """
     Defines a Neutone Parameter abstract base class.
 
@@ -34,6 +36,7 @@ class NeutoneParameter(ABC):
         used: bool,
         param_type: NeutoneParameterType,
     ):
+        super().__init__()
         self.name = name
         self.description = description
         self.default_value = default_value
@@ -58,12 +61,18 @@ class ContinuousNeutoneParameter(NeutoneParameter):
 
     The name and the description of the parameter will be shown as a tooltip
     within the UI.
-    `default_value` must be between 0 and 1 and will be used as a default in the plugin
-    when no presets are available.
+    `default_value` must be between min_value and max_value and will be used as the
+    default in the plugin when no presets are available.
     """
 
     def __init__(
-        self, name: str, description: str, default_value: float, used: bool = True
+        self,
+        name: str,
+        description: str,
+        default_value: float,
+        min_value: float = 0.0,
+        max_value: float = 1.0,
+        used: bool = True,
     ):
         super().__init__(
             name,
@@ -73,8 +82,29 @@ class ContinuousNeutoneParameter(NeutoneParameter):
             NeutoneParameterType.CONTINUOUS,
         )
         assert (
-            0.0 <= default_value <= 1.0
-        ), "`default_value` for continuous params must be between 0 and 1"
+            min_value < max_value
+        ), "`min_value` must be less than `max_value` for continuous params"
+        assert (
+            min_value <= default_value <= max_value
+        ), f"`default_value` for continuous params must be between {min_value} and {max_value}"
+        self.min_value = min_value
+        self.max_value = max_value
+        self.range = max_value - min_value
+        self.default_value_0to1 = (default_value - min_value) / self.range
+
+    def from_0to1(self, param_val: T) -> T:
+        """
+        Converts a parameter value inplace from [0, 1] to [min_value, max_value].
+        """
+        tr.mul(param_val, self.range, out=param_val)
+        tr.add(param_val, self.min_value, out=param_val)
+        return param_val
+
+    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+        metadata = super().to_metadata()
+        metadata["min_value"] = self.min_value
+        metadata["max_value"] = self.max_value
+        return metadata
 
 
 class CategoricalNeutoneParameter(NeutoneParameter):
@@ -120,8 +150,16 @@ class CategoricalNeutoneParameter(NeutoneParameter):
             f"{constants.MAX_N_CATEGORICAL_LABEL_CHARS} characters"
         )
         self.labels = labels
+        self.default_value_0to1 = default_value / (n_values - 1)
 
-    # def to_metadata(self) -> ParameterMetadata:
+    def from_0to1(self, param_val: T) -> T:
+        """
+        Converts a parameter value inplace from [0, 1] to [0, `n_values` - 1].
+        """
+        tr.mul(param_val, self.n_values - 1, out=param_val)
+        tr.round(param_val, out=param_val)
+        return param_val
+
     def to_metadata(
         self,
     ) -> Dict[str, Union[int, float, str, bool, List[str], List[int]]]:

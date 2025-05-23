@@ -19,8 +19,9 @@ class NeutoneModel(ABC, nn.Module):
     # TorchScript typing does not support instance attributes, so we need to type them
     # as class attributes. This is required for supporting models with no parameters.
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
-    neutone_parameters_metadata: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
-    remapped_params: Dict[str, Tensor]
+    neutone_parameters_metadata: Dict[
+        str, Dict[str, Union[int, float, str, bool, List[str], List[int]]]
+    ]
     neutone_parameter_names: List[str]
 
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
@@ -58,19 +59,14 @@ class NeutoneModel(ABC, nn.Module):
         }
 
         # Allocate default params buffer to prevent dynamic allocations later
-        numerical_default_param_vals = self._get_numerical_default_param_values()
-        default_param_values_t = tr.tensor([v for _, v in numerical_default_param_vals])
-        assert default_param_values_t.size(0) <= self.MAX_N_PARAMS, (
-            f"Number of default parameter values ({default_param_values_t.size(0)}) "
+        default_vals_0to1 = self._get_numerical_params_default_values_0to1()
+        n_numerical_params = default_vals_0to1.size(0)
+        assert n_numerical_params <= self.MAX_N_PARAMS, (
+            f"Number of default param values ({n_numerical_params}) "
             f"exceeds the maximum allowed ({self.MAX_N_PARAMS})."
         )
-        default_param_values = default_param_values_t.unsqueeze(-1)
-        self.register_buffer("default_param_values", default_param_values)
-
-        # Allocate remapped params dictionary to prevent dynamic allocations later
-        self.remapped_params = {
-            name: tr.tensor([val]) for name, val in numerical_default_param_vals
-        }
+        default_vals_0to1 = default_vals_0to1.view(n_numerical_params, 1)
+        self.register_buffer("numerical_params_default_values_0to1", default_vals_0to1)
 
         # Save parameter information
         self.neutone_parameter_names = [p.name for p in self.get_neutone_parameters()]
@@ -84,12 +80,12 @@ class NeutoneModel(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def _get_numerical_default_param_values(
+    def _get_numerical_params_default_values_0to1(
         self,
-    ) -> List[Tuple[str, Union[float, int]]]:
+    ) -> Tensor:
         """
-        Returns a list of tuples containing the name and default value of each
-        numerical (float or int) parameter.
+        Returns a float tensor with the default values of the numerical parameters
+        in the range [0, 1].
         This should not be overwritten by SDK users.
         """
         pass
@@ -242,12 +238,12 @@ class NeutoneModel(ABC, nn.Module):
         return self.neutone_parameters_metadata
 
     @tr.jit.export
-    def get_default_param_values(self) -> Tensor:
+    def get_numerical_params_default_values_0to1(self) -> Tensor:
         """
         Returns the default parameter values as a tensor of shape
-        (N_DEFAULT_PARAM_VALUES, 1).
+        (n_numerical_params, 1).
         """
-        return self.default_param_values
+        return self.numerical_params_default_values_0to1
 
     @tr.jit.export
     def get_wet_default_value(self) -> float:
@@ -272,7 +268,7 @@ class NeutoneModel(ABC, nn.Module):
         return [
             "model",  # nn.Module
             "get_neutone_parameters_metadata",
-            "get_default_param_values",
+            "get_numerical_params_default_values_0to1",
             "get_wet_default_value",
             "get_dry_default_value",
             "get_input_gain_default_value",

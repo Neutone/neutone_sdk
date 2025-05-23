@@ -25,7 +25,9 @@ class WaveformToWaveformBase(NeutoneModel):
     # as class attributes. This is required for supporting models with no parameters.
     # (https://github.com/pytorch/pytorch/issues/51041#issuecomment-767061194)
     # From NeutoneModel, sometimes TorchScript complains if there are not redefined here
-    neutone_parameters_metadata: Dict[str, Dict[str, Union[int, float, str, bool, List[str]]]]
+    neutone_parameters_metadata: Dict[
+        str, Dict[str, Union[int, float, str, bool, List[str], List[int]]]
+    ]
     remapped_params: Dict[str, Tensor]
     neutone_parameter_names: List[str]
 
@@ -40,6 +42,7 @@ class WaveformToWaveformBase(NeutoneModel):
         self.model_in_buffer = tr.zeros((self.in_n_ch, 1))
         self.params_buffer = tr.zeros((self.MAX_N_PARAMS, 1))
         self.agg_params = tr.zeros((self.MAX_N_PARAMS, 1))
+        self.remapped_params = {}
 
         assert all(
             p.type == NeutoneParameterType.CONTINUOUS
@@ -61,9 +64,9 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         return constants.MAX_N_PARAMS
 
-    def _get_numerical_default_param_values(
+    def _get_numerical_params_default_values_0to1(
         self,
-    ) -> List[Tuple[str, Union[float, int]]]:
+    ) -> Tensor:
         """
         Returns a list of tuples containing the name and default value of each
         numerical (float or int) parameter.
@@ -75,11 +78,10 @@ class WaveformToWaveformBase(NeutoneModel):
         """
         result = []
         for p in self.get_neutone_parameters():
-            result.append((p.name, p.default_value))
+            result.append(p.default_value_0to1)
         if len(result) < self.MAX_N_PARAMS:
-            result.extend(
-                [(f"p{idx + 1}", 0.0) for idx in range(len(result), self.MAX_N_PARAMS)]
-            )
+            result.extend([0.0] * (self.MAX_N_PARAMS - len(result)))
+        result = tr.tensor(result)
         return result
 
     @abstractmethod
@@ -223,7 +225,7 @@ class WaveformToWaveformBase(NeutoneModel):
             # with the plugin inputs we repeat them for the size of the buffer.
             # This allocates memory but should never happen in the VST since it always
             # passes parameters
-            params = self.get_default_param_values().repeat(1, in_n)
+            params = self.get_numerical_params_default_values_0to1().repeat(1, in_n)
 
         if self.use_debug_mode:
             assert params.shape == (self.MAX_N_PARAMS, in_n)
@@ -252,7 +254,9 @@ class WaveformToWaveformBase(NeutoneModel):
             n = self.in_queue.size
             self.model_in_buffer[:, 0:-n] = 0
             self.in_queue.fill(self.model_in_buffer[:, -n:])
-            self.params_buffer[:, 0:-n] = self.get_default_param_values()
+            self.params_buffer[:, 0:-n] = (
+                self.get_numerical_params_default_values_0to1()
+            )
             self.params_queue.fill(self.params_buffer[:, -n:])
             x = self.model_in_buffer
             params = self.params_buffer
@@ -328,8 +332,8 @@ class WaveformToWaveformBase(NeutoneModel):
                     self.MAX_N_PARAMS, queue_len, use_debug_mode=self.use_debug_mode
                 )
                 self.model_in_buffer = tr.zeros((self.in_n_ch, queue_len))
-                self.params_buffer = self.get_default_param_values().repeat(
-                    1, queue_len
+                self.params_buffer = (
+                    self.get_numerical_params_default_values_0to1().repeat(1, queue_len)
                 )
 
         return self.set_model_sample_rate_and_buffer_size(sample_rate, n_samples)
@@ -360,7 +364,7 @@ class WaveformToWaveformBase(NeutoneModel):
         self.in_queue.reset()
         self.params_queue.reset()
         self.model_in_buffer.fill_(0)
-        self.params_buffer[:, :] = self.get_default_param_values()
+        self.params_buffer[:, :] = self.get_numerical_params_default_values_0to1()
         return self.reset_model()
 
     @tr.jit.export

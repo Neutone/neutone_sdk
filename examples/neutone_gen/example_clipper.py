@@ -96,13 +96,14 @@ class NonRealtimeClipperModelWrapper(NonRealtimeBase):
         self,
         curr_block_idx: int,
         audio_in: List[Tensor],
-        knob_params: Dict[str, Tensor],
+        numerical_params: Dict[str, Tensor],
         text_params: List[str],
+        tokens_params: List[List[int]],
     ) -> List[Tensor]:
         min_val, max_val, gain = (
-            knob_params["min"],
-            knob_params["max"],
-            knob_params["gain"],
+            numerical_params["min"],
+            numerical_params["max"],
+            numerical_params["gain"],
         )
         audio_out = []
         for x in audio_in:

@@ -234,7 +234,7 @@ class NeutoneModel(ABC, nn.Module):
     @tr.jit.export
     def get_neutone_parameters_metadata(
         self,
-    ) -> Dict[str, Dict[str, Union[int, float, str, bool, List[str], Tensor]]]:
+    ) -> Dict[str, Dict[str, Union[int, float, str, bool, List[str], List[int]]]]:
         """
         Returns the metadata of the parameters as a dictionary of ParameterMetadata
         named tuples.

@@ -4,8 +4,6 @@ from abc import ABC
 from enum import Enum
 from typing import Union, Optional, List, Dict
 
-import torch
-
 from neutone_sdk import constants
 
 logging.basicConfig()
@@ -32,7 +30,7 @@ class NeutoneParameter(ABC):
         self,
         name: str,
         description: str,
-        default_value: Union[int, float, str],
+        default_value: Union[int, float, str, Optional[List[int]]],
         used: bool,
         param_type: NeutoneParameterType,
     ):
@@ -42,7 +40,9 @@ class NeutoneParameter(ABC):
         self.used = used
         self.type = param_type
 
-    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+    def to_metadata(
+        self,
+    ) -> Dict[str, Union[int, float, str, bool, List[str], List[int]]]:
         return {
             "name": self.name,
             "description": self.description,
@@ -122,7 +122,9 @@ class CategoricalNeutoneParameter(NeutoneParameter):
         self.labels = labels
 
     # def to_metadata(self) -> ParameterMetadata:
-    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+    def to_metadata(
+        self,
+    ) -> Dict[str, Union[int, float, str, bool, List[str], List[int]]]:
         metadata = super().to_metadata()
         metadata["n_values"] = self.n_values
         metadata["labels"] = self.labels
@@ -158,7 +160,9 @@ class TextNeutoneParameter(NeutoneParameter):
             ), "`default_value` must be a string of length less than `max_n_chars`"
         self.max_n_chars = max_n_chars
 
-    def to_metadata(self) -> Dict[str, Union[int, float, str, bool, List[str]]]:
+    def to_metadata(
+        self,
+    ) -> Dict[str, Union[int, float, str, bool, List[str], List[int]]]:
         metadata = super().to_metadata()
         metadata["max_n_chars"] = self.max_n_chars
         return metadata
@@ -178,22 +182,24 @@ class DiscreteTokensNeutoneParameter(NeutoneParameter):
         name: str,
         description: str,
         max_n_tokens: int = -1,
-        default_value: Optional[torch.LongTensor] = None,
+        default_value: Optional[List[int]] = None,
         used: bool = True,
     ):
+        if default_value is None:
+            default_value: List[int] = []
         super().__init__(
             name, description, default_value, used, NeutoneParameterType.TOKENS
         )
         assert max_n_tokens >= -1, "`max_n_tokens` must be greater than or equal to -1"
         if max_n_tokens != -1:
             assert (
-                default_value.shape[-1] <= max_n_tokens
-            ), "`default_value` must be a string of length less than `max_n_tokens`"
+                len(default_value) <= max_n_tokens
+            ), "`default_value` must be a list of length less than `max_n_tokens`"
         self.max_n_tokens = max_n_tokens
 
     def to_metadata(
         self,
-    ) -> Dict[str, Union[int, float, str, bool, List[str], Optional[torch.LongTensor]]]:
+    ) -> Dict[str, Union[int, float, str, bool, List[str], List[int]]]:
         metadata = super().to_metadata()
         metadata["max_n_tokens"] = self.max_n_tokens
         return metadata

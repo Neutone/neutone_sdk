@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from enum import Enum
 from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple, Union, Any
 
@@ -18,6 +19,12 @@ from neutone_sdk.utils import validate_waveform
 logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
+
+
+class TokenizerType(Enum):
+    JSON = "JSON"  # huggingface tokenizer.json FromBlobJSON
+    SENTENCEPIECE = "SentencePiece"  # FromBlobSentencePiece
+    RWKVWORLD = "RWKVWorld"  # FromBlobRWKVWorld
 
 
 class NonRealtimeBase(NeutoneModel):
@@ -633,7 +640,7 @@ class NonRealtimeBase(NeutoneModel):
                 "get_preserved_attributes",
                 "to_metadata",
                 "get_metadata_json",
-                "get_tokenizer_json",
+                "get_tokenizer_str",
             ]
         )
         return preserved_attrs
@@ -659,21 +666,41 @@ class NonRealtimeBase(NeutoneModel):
         return self.metadata_json_str
 
     @tr.jit.export
-    def get_tokenizer_json(self) -> str:
+    def get_tokenizer_str(self) -> str:
         return ""
+
+    @tr.jit.export
+    def get_tokenizer_type(self) -> Optional[str]:
+        return None
 
 
 class NonRealtimeTokenizerBase(NonRealtimeBase):
+
     def __init__(
         self,
         model: nn.Module,
-        tokenizer_json_str: str,
+        tokenizer_str: str,
+        tokenizer_type: TokenizerType,
         use_debug_mode: bool = True,
     ) -> None:
         super().__init__(model, use_debug_mode)
-        self.tokenizer_json_str = tokenizer_json_str
+        self.tokenizer_str = tokenizer_str  # BASE 64
+        ALLOWED_TOKENIZER_TYPES = {
+            TokenizerType.JSON,
+            TokenizerType.RWKVWORLD,
+            TokenizerType.SENTENCEPIECE,
+        }
+        assert tokenizer_type in ALLOWED_TOKENIZER_TYPES, (
+            f"Parameter type {tokenizer_type} is not allowed. "
+            f"Allowed types are {ALLOWED_TOKENIZER_TYPES}"
+        )
+        self.tokenizer_type = tokenizer_type.value
         self.has_tokenizer = True
 
     @tr.jit.export
-    def get_tokenizer_json(self) -> str:
-        return self.tokenizer_json_str
+    def get_tokenizer_str(self) -> str:
+        return self.tokenizer_str
+
+    @tr.jit.export
+    def get_tokenizer_type(self) -> Optional[str]:
+        return self.tokenizer_type

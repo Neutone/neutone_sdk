@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import argparse, json, logging, os, base64, io, tempfile
 from typing import List, Dict
 
 import torch
@@ -13,7 +14,14 @@ from neutone_sdk import (
     ContinuousNeutoneParameter,
 )
 from neutone_sdk.non_realtime_sqw import NonRealtimeSampleQueueWrapper
-from neutone_sdk.non_realtime_wrapper import NonRealtimeTokenizerBase
+from neutone_sdk.non_realtime_wrapper import NonRealtimeTokenizerBase, TokenizerType
+
+"""
+To run this script, you will need to install tokenizers library and also protobuf 
+if you are using the sentencepiece tokenizer.
+"""
+
+TOK_TYPE = TokenizerType.SENTENCEPIECE
 
 logging.basicConfig()
 log = logging.getLogger(__name__)
@@ -203,18 +211,24 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeTokenizerBase):
 
 
 if __name__ == "__main__":
-    from tokenizers import Tokenizer
+    from tokenizers import Tokenizer, SentencePieceUnigramTokenizer
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="musicgen-model", type=str)
     args = parser.parse_args()
-
     model = torch.jit.load("../../out/musicgen_scripted_notok.ts")
-    tok_path = str("../../out/tokenizer.json")
-    tokenizer = Tokenizer.from_file(tok_path)
-    with open(tok_path, "r", encoding="utf-8") as f:
-        json_string = json.dumps(json.load(f), ensure_ascii=True)
-    wrapped = NonRealtimeMusicGenModelWrapper(model, json_string)
+    if TOK_TYPE == TokenizerType.SENTENCEPIECE:
+        tok_path = str("../../out/spiece.model")
+        with open(tok_path, mode="rb") as f:
+            tok_string = base64.b64encode(f.read()).decode()
+        tokenizer = SentencePieceUnigramTokenizer.from_spm(tok_path)
+    elif TOK_TYPE == TokenizerType.JSON:
+        tok_path = str("../../out/tokenizer.json")
+        with open(tok_path, "r", encoding="utf-8") as f:
+            tok_string = json.dumps(json.load(f), ensure_ascii=True)
+        tokenizer = Tokenizer.from_file(tok_path)
+
+    wrapped = NonRealtimeMusicGenModelWrapper(model, tok_string, TOK_TYPE)
     tokens = tokenizer.encode("80s pop track with bassy drums and synth").ids
 
     sqw = NonRealtimeSampleQueueWrapper(wrapped)
@@ -241,4 +255,17 @@ if __name__ == "__main__":
     torchaudio.save("../../out/out_ts.wav", out_ts[0], sample_rate=32000)
     torch.jit.save(ts, "../../out/wrapped-musicgen.ts")
     model = torch.jit.load("../../out/wrapped-musicgen.ts")
-    print(model.get_tokenizer_json())
+    # test saved tokenizer
+    print(f"saved with {model.get_tokenizer_type()} tokenizer")
+    if TOK_TYPE == TokenizerType.SENTENCEPIECE:
+        tok_bin = base64.b64decode(model.get_tokenizer_str())
+        # Create a named temporary file that is deleted when closed
+        with tempfile.NamedTemporaryFile(
+            mode="wb", delete=False, suffix=".model"
+        ) as temp_model_file:
+            temp_model_file.write(tok_bin)
+            temp_model_file_path = temp_model_file.name
+            tokenizer = SentencePieceUnigramTokenizer.from_spm(temp_model_file_path)
+    elif TOK_TYPE == TokenizerType.JSON:
+        tokenizer = Tokenizer.from_str(model.get_tokenizer_str())
+    print(tokenizer.decode(tokens))

@@ -204,7 +204,22 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeTokenizerBase):
         tokens = tokens_params[0]
         # Convert to LongTensor with batch size of 1
         tokens = torch.LongTensor(tokens).unsqueeze(0)
-        x = self.model.forward(tokens, output_length)
+        with torch.no_grad():
+            input_ids, encoder_outputs, delay_pattern_mask, encoder_attention_mask = (
+                self.model.preprocess(tokens, output_length)
+            )
+            for i in range(output_length - 1):
+                input_ids = self.model.sample_step(
+                    input_ids,
+                    encoder_outputs,
+                    delay_pattern_mask,
+                    encoder_attention_mask,
+                )
+                self.set_progress_percentage(float(i + 1) / output_length * 100)
+                if self.should_cancel_forward_pass():
+                    # Can't return empty list for some reason
+                    break
+            x = self.model.postprocess(input_ids, delay_pattern_mask, tokens)
         audio_out.append(x.squeeze(1))
         return audio_out
         # return [self.model.forward(min_val, min_val, max_val, gain)]

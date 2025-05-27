@@ -329,11 +329,11 @@ class NonRealtimeBase(NeutoneModel):
 
     def has_progress_percentage(self) -> bool:
         """
-        Return True if the model sets the progress percentage of the model during
+        Returns True if the model sets the progress percentage of the model during
         forward pass.
-        If this is False, the plugin should estimate the progress based on last run.
+        If this is False and the model is a oneshot model, the plugin should estimate the progress based on last run.
         """
-        return False
+        return True
 
     def get_audio_in_labels(self) -> List[str]:
         """

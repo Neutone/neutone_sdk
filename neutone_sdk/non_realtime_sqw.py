@@ -445,6 +445,10 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         return total_prog_percentage
 
     @tr.jit.export
+    def has_progress_percentage(self) -> bool:
+        return self.nrb.has_progress_percentage()
+
+    @tr.jit.export
     def should_cancel_forward_pass(self) -> bool:
         return self.nrb.should_cancel_forward_pass()
 
@@ -490,6 +494,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
             "set_daw_sample_rate_and_buffer_size",
             "is_one_shot_model",
             "get_progress_percentage",
+            "has_progress_percentage",
             "should_cancel_forward_pass",
             "request_cancel_forward_pass",
             "is_text_model",

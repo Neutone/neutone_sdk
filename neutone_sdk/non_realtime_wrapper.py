@@ -327,6 +327,14 @@ class NonRealtimeBase(NeutoneModel):
             ), "Progress percentage must be between 0 and 100"
         self.progress_percentage = progress_percentage
 
+    def has_progress_percentage(self) -> bool:
+        """
+        Return True if the model sets the progress percentage of the model during
+        forward pass.
+        If this is False, the plugin should estimate the progress based on last run.
+        """
+        return False
+
     def get_audio_in_labels(self) -> List[str]:
         """
         Returns the labels for the input audio channels which will be displayed in the
@@ -583,6 +591,7 @@ class NonRealtimeBase(NeutoneModel):
                 "set_sample_rate_and_buffer_size",
                 "reset",
                 "get_progress_percentage",
+                "has_progress_percentage",
                 "should_cancel_forward_pass",
                 "request_cancel_forward_pass",
                 "is_text_model",

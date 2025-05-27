@@ -188,6 +188,10 @@ class NonRealtimeMusicGenModelWrapper(NonRealtimeTokenizerBase):
     def is_one_shot_model(self) -> bool:
         return True
 
+    @torch.jit.export
+    def has_progress_percentage(self) -> bool:
+        return True
+
     def aggregate_continuous_params(self, cont_params: torch.Tensor) -> torch.Tensor:
         return cont_params  # We want sample-level control, so no aggregation
 

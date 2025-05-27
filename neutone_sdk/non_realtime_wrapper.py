@@ -641,6 +641,7 @@ class NonRealtimeBase(NeutoneModel):
                 "to_metadata",
                 "get_metadata_json",
                 "get_tokenizer_str",
+                "get_tokenizer_type",
             ]
         )
         return preserved_attrs

@@ -38,6 +38,7 @@ class SampleQueueWrapper(nn.Module):
         """
         super().__init__()
         self.use_debug_mode = use_debug_mode
+        self.realtime = True
 
         self.w2w_base = w2w_base
         self.in_n_ch = 1 if self.is_input_mono() else 2

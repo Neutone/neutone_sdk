@@ -4,7 +4,8 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Tuple, Dict, List
+import time
+from typing import Tuple, Dict, List, Union
 
 import torch as tr
 from torch import Tensor
@@ -114,15 +115,17 @@ def save_neutone_model(
 
     root_dir.mkdir(exist_ok=True, parents=True)
 
-    # TODO(cm): remove local import (currently prevents circular import)
-    from neutone_sdk import SampleQueueWrapper
+    if model.realtime:
+        from neutone_sdk.sqw import SampleQueueWrapper as Wrapper
+    else:
+        from neutone_sdk.non_realtime_sqw import NonRealtimeSampleQueueWrapper as Wrapper
     from neutone_sdk.benchmark import benchmark_latency_, benchmark_speed_
 
-    sqw = SampleQueueWrapper(model)
+    wrapped = Wrapper(model)
 
     with tr.no_grad():
         log.info("Converting model to torchscript...")
-        script = model_to_torchscript(sqw, freeze=freeze, optimize=optimize)
+        script = model_to_torchscript(wrapped, freeze=freeze, optimize=optimize)
 
         # We need to keep a copy because some models still don't implement reset
         # properly and when rendering the samples we might create unwanted state.
@@ -139,13 +142,16 @@ def save_neutone_model(
         with open(root_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=4)
 
-        if dump_samples:
+        if dump_samples and not model.realtime:
+            log.warning("dump_samples was true but we cannot automatically render samples for non-realtime models. Please use the Neutone Gen plugin.")
+        if dump_samples and model.realtime:
             log.info("Running model on audio samples...")
             if audio_sample_pairs is None:
                 input_samples = get_default_audio_samples()
                 audio_sample_pairs = []
                 for input_sample in input_samples:
-                    rendered_sample = render_audio_sample(sqw, input_sample)
+                    # Realtime we always return only one sample
+                    rendered_sample = render_audio_sample(wrapped, input_sample)[0]
                     audio_sample_pairs.append(
                         AudioSamplePair(input_sample, rendered_sample)
                     )
@@ -158,7 +164,7 @@ def save_neutone_model(
             metadata["sample_sound_files"] = []
 
         log.info("Validating metadata...")
-        validate_metadata(metadata)
+        validate_metadata(metadata, model.realtime)
         extra_files = {"metadata.json": json.dumps(metadata, indent=4).encode("utf-8")}
 
         # Save the copied model with the extra files
@@ -169,7 +175,7 @@ def save_neutone_model(
             dump_samples_from_metadata(metadata, root_dir)
 
         log.info("Loading saved model and metadata...")
-        loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+        loaded_model, loaded_metadata = load_neutone_model(str(root_dir / "model.nm"))
         check_for_preserved_attributes(
             loaded_model, loaded_model.get_preserved_attributes()
         )
@@ -178,20 +184,22 @@ def save_neutone_model(
         loaded_model.reset()
         loaded_model.is_resampling()
 
-        if speed_benchmark:
+        if speed_benchmark and model.realtime:
             log.info(
                 "Running speed benchmark... If this is taking too long consider "
                 "disabling the speed_benchmark parameter."
             )
             benchmark_speed_(str(root_dir / "model.nm"))
             log.info("Finished speed benchmark")
+        elif speed_benchmark and not model.realtime:
+            log.warning("Skipping speed benchmark for non-realtime models even if speed_benchmark is True")
         else:
             log.info(
                 "Skipping speed_benchmark because the speed_benchmark parameter is set "
                 "to False"
             )
 
-        if test_offline_mode:
+        if model.realtime and test_offline_mode:
             log.info("Testing offline mode...")
             for input_sample in get_default_audio_samples():
                 offline_sr = input_sample.sr
@@ -208,7 +216,7 @@ def save_neutone_model(
         if submission:  # Do extra checks
             log.info("Running submission checks...")
             log.info("Reloading model...")
-            loaded_model, loaded_metadata = load_neutone_model(root_dir / "model.nm")
+            loaded_model, loaded_metadata = load_neutone_model(str(root_dir / "model.nm"))
             log.info("Assert metadata was saved correctly...")
             assert loaded_metadata == metadata
             del loaded_metadata["sample_sound_files"]
@@ -218,13 +226,16 @@ def save_neutone_model(
             log.info(
                 "Assert loaded model output matches output of model before saving..."
             )
-            input_samples = audio_sample_pairs[0].input
             tr.manual_seed(42)
-            loaded_model_render = render_audio_sample(loaded_model, input_samples).audio
+            input_sample = get_default_audio_samples()[0]
+            input_sample.audio = input_sample.audio[:, :input_sample.sr * 3]
+            t = time.time()
+            loaded_model_render = render_audio_sample(loaded_model, input_sample)
+            log.info(f"Rendering with the loaded model took {time.time()-t:.2f}s for a 3s sample and the default parameters.")
             tr.manual_seed(42)
-            script_model_render = render_audio_sample(script_copy, input_samples).audio
-
-            assert tr.allclose(script_model_render, loaded_model_render, atol=1e-6)
+            script_model_render = render_audio_sample(script_copy, input_sample)
+            for lmr, smr in zip(loaded_model_render, script_model_render):
+                assert tr.allclose(lmr.audio, smr.audio, atol=1e-6)
 
             log.info("Running benchmarks...")
             log.info(
@@ -233,14 +244,20 @@ def save_neutone_model(
                 "combinations."
             )
             log.info("Running default latency benchmark...")
-            benchmark_latency_(
-                str(root_dir / "model.nm"),
-            )
+            if model.realtime:
+                benchmark_latency_(
+                    str(root_dir / "model.nm"),
+                )
 
             log.info("Your model has been exported successfully!")
-            log.info(
-                "You can now test it using the plugin available at https://neutone.space"
-            )
+            if model.realtime:
+                log.info(
+                    f"You can now test it using the FX plugin available at https://neutone.ai/fx"
+                )
+            else:
+                log.info(
+                    f"You can now test it using the Gen plugin available at https://github.com/Neutone/neutone_sdk"
+                )
             log.info(
                 """Additionally, the parameter helper text is not displayed
                     correctly when using the local load functionality"""
@@ -263,43 +280,8 @@ def load_neutone_model(path: str) -> Tuple[ScriptModule, Dict]:
     }
     model = tr.jit.load(path, _extra_files=extra_files)
     loaded_metadata = json.loads(extra_files["metadata.json"].decode())
-    assert validate_metadata(loaded_metadata)
+    assert validate_metadata(loaded_metadata, model.realtime)
     return model, loaded_metadata
-
-
-def get_example_inputs(multichannel: bool = False) -> List[Tensor]:
-    """
-    returns a list of possible input tensors for an AuditionerModel.
-
-    Possible inputs are audio tensors with shape (n_channels, n_samples).
-    If multichannel == False, n_channels will always be 1.
-    """
-    max_channels = 2 if multichannel else 1
-    num_inputs = 10
-    channels = [random.randint(1, max_channels) for _ in range(num_inputs)]
-    # sizes = [random.randint(2048, 396000) for _ in range(num_inputs)]
-    sizes = [2048 for _ in range(num_inputs)]
-    return [tr.rand((c, s)) for c, s in zip(channels, sizes)]
-
-
-def test_run(model: "NeutoneModel", multichannel: bool = False) -> None:
-    """
-    Performs a couple of test forward passes with audio tensors of different sizes.
-    Possible inputs are audio tensors with shape (n_channels, n_samples).
-    If the model fails to meet the input/output requirements of either WaveformToWaveformBase or WaveformToLabelsBase,
-      an assertion will be triggered by the respective class.
-
-      Args:
-        model (NeutoneModel): Your model, wrapped in either WaveformToWaveformBase or WaveformToLabelsBase
-        multichannel (bool): if False, the number of input audio channels will always equal to 1. Otherwise,
-                             some stereo test input arrays will be generated.
-    Returns:
-
-    """
-    for x in get_example_inputs(multichannel):
-        y = model(x)
-        # plt.plot(y.cpu().numpy()[0])
-        # plt.show()
 
 
 def validate_waveform(x: Tensor, is_mono: bool) -> None:
@@ -373,3 +355,4 @@ def select_best_model_buffer_size(
     diffs = [abs(bs - io_bs) for bs in native_buffer_sizes]
     min_idx = diffs.index(min(diffs))
     return native_buffer_sizes[min_idx]
+

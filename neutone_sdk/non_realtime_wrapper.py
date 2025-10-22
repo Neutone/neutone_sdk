@@ -52,6 +52,7 @@ class NonRealtimeBase(NeutoneModel):
         Compatible with the Neutone Gen plugin.
         """
         super().__init__(model, use_debug_mode)
+        self.realtime = False
         self.default_daw_sr = constants.DEFAULT_DAW_SR
         self.default_daw_bs = constants.DEFAULT_DAW_BS
         self.current_model_sample_rate = utils.select_best_model_sr(

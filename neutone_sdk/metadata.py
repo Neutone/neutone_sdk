@@ -11,6 +11,38 @@ logging.basicConfig()
 log = logging.getLogger(__name__)
 log.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
 
+required_params = [
+        "model_name",
+        "model_authors",
+        "model_version",
+        "model_short_description",
+        "model_long_description",
+        "technical_description",
+        "technical_links",
+        "tags",
+        "citation",
+        "is_experimental",
+        "sample_sound_files",
+        "neutone_parameters",
+        "wet_default_value",
+        "dry_default_value",
+        "input_gain_default_value",
+        "output_gain_default_value",
+        "native_sample_rates",
+        "native_buffer_sizes",
+        "sdk_version",
+        "pytorch_version",
+        "date_created",
+    ]
+
+extra_required_params_realtime = [
+    "is_input_mono",
+    "is_output_mono",
+    "model_type",
+    "look_behind_samples",
+]
+
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -122,7 +154,6 @@ SCHEMA = {
             "items": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 65536,
             },
             "uniqueItems": True,
         },
@@ -150,37 +181,14 @@ SCHEMA = {
             },
         }
     },
-    "required": [
-        "model_name",
-        "model_authors",
-        "model_version",
-        "model_short_description",
-        "model_long_description",
-        "technical_description",
-        "technical_links",
-        "tags",
-        "citation",
-        "is_experimental",
-        "sample_sound_files",
-        "neutone_parameters",
-        "wet_default_value",
-        "dry_default_value",
-        "input_gain_default_value",
-        "output_gain_default_value",
-        "is_input_mono",
-        "is_output_mono",
-        "model_type",
-        "native_sample_rates",
-        "native_buffer_sizes",
-        "look_behind_samples",
-        "sdk_version",
-        "pytorch_version",
-        "date_created",
-    ],
+    "required": required_params,
 }
 
 
-def validate_metadata(metadata: dict) -> bool:
+def validate_metadata(metadata: dict, realtime: bool) -> bool:
+    if realtime:
+        SCHEMA["required"] = required_params + extra_required_params_realtime
+        SCHEMA["properties"]["native_sample_rates"]["items"]["maximum"] = 65536
     try:
         validate(instance=metadata, schema=SCHEMA)
     except ValidationError as err:

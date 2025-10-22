@@ -139,16 +139,13 @@ def get_default_audio_samples() -> List[AudioSample]:
 
 
 def render_audio_sample(
-    model: Union["SampleQueueWrapper", "WaveformToWaveformBase", ScriptModule],
+    model: Union["NonRealtimeSampleQueueWrapper", "SampleQueueWrapper", ScriptModule],
     input_sample: AudioSample,
     params: Optional[Tensor] = None,
+    text_params: Optional[List[str]] = None,
+    tokens_params: Optional[List[List[int]]] = None,
     output_sr: int = 44100,
-) -> AudioSample:
-    """
-    params: either [model.MAX_N_PARAMS] 1d tensor of constant parameter values
-            or [model.MAX_N_PARAMS, input_sample.audio.size(1)] 2d tensor of parameter values for every input audio sample
-    """
-
+) -> List[AudioSample]:
     with tr.no_grad():
         model.use_debug_mode = True  # Turn on debug mode to catch common mistakes when rendering sample audio
 
@@ -160,72 +157,106 @@ def render_audio_sample(
         else:
             buffer_size = 512
 
-        audio = input_sample.audio
-        if input_sample.sr != preferred_sr:
-            audio = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(audio)
-
-        if model.is_input_mono() and not input_sample.is_mono():
-            audio = tr.mean(audio, dim=0, keepdim=True)
-        elif not model.is_input_mono() and input_sample.is_mono():
-            audio = audio.repeat(2, 1)
-
-        audio_len = audio.size(1)
-        padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
-        padded_audio = nn.functional.pad(audio, [0, padding_amount])
-        audio_chunks = padded_audio.split(buffer_size, dim=1)
-
         model.set_daw_sample_rate_and_buffer_size(
             preferred_sr, buffer_size, preferred_sr, buffer_size
         )
 
-        # make sure the shape of params is compatible with the model calls.
-        if params is not None:
-            assert params.shape[0] == model.MAX_N_PARAMS
-
-            # if constant values, copy across audio dimension
-            if params.dim() == 1:
-                params = params.repeat([audio_len, 1]).T
-
-            # otherwise resample to match audio
-            else:
-                assert params.shape == (model.MAX_N_PARAMS, input_sample.audio.size(1))
-                params = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(
-                    params
-                )
-                params = tr.clamp(params, 0, 1)
-
-            # padding and chunking parameters to match audio
-            padded_params = nn.functional.pad(
-                params, [0, padding_amount], mode="replicate"
-            )
-            param_chunks = padded_params.split(buffer_size, dim=1)
-
-            out_chunks = [
-                model.forward(audio_chunk, param_chunk).clone()
-                for audio_chunk, param_chunk in tqdm(
-                    zip(audio_chunks, param_chunks), total=len(audio_chunks)
-                )
-            ]
-
+        if model.realtime:
+            return [run_inference_realtime(model, input_sample, preferred_sr, buffer_size, params, output_sr)]
         else:
-            out_chunks = [
-                model.forward(audio_chunk, None).clone()
-                for audio_chunk in tqdm(audio_chunks)
-            ]
+            return run_inference_nonrealtime(model, input_sample, preferred_sr, params, text_params, tokens_params, output_sr)
 
-        audio_out = tr.hstack(out_chunks)[:, :audio_len]
 
-        model.reset()
+def run_inference_realtime(
+    model: Union["SampleQueueWrapper", ScriptModule],
+    input_sample: AudioSample,
+    preferred_sr: int,
+    buffer_size: int,
+    params: Optional[Tensor] = None,
+    output_sr: int = 44100,
+):
+    audio = input_sample.audio
+    if input_sample.sr != preferred_sr:
+        audio = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(audio)
+        
+    if model.is_input_mono() and not input_sample.is_mono():
+        audio = tr.mean(audio, dim=0, keepdim=True)
+    elif not model.is_input_mono() and input_sample.is_mono():
+        audio = audio.repeat(2, 1)
 
-        if preferred_sr != output_sr:
-            audio_out = torchaudio.transforms.Resample(preferred_sr, output_sr)(
-                audio_out
+    audio_len = audio.size(1)
+    padding_amount = math.ceil(audio_len / buffer_size) * buffer_size - audio_len
+    padded_audio = nn.functional.pad(audio, [0, padding_amount])
+    audio_chunks = padded_audio.split(buffer_size, dim=1)
+
+    # make sure the shape of params is compatible with the model calls.
+    if params is not None:
+        assert params.shape[0] == model.MAX_N_PARAMS
+
+        # if constant values, copy across audio dimension
+        if params.dim() == 1:
+            params = params.repeat([audio_len, 1]).T
+
+        # otherwise resample to match audio
+        else:
+            assert params.shape == (model.MAX_N_PARAMS, input_sample.audio.size(1))
+            params = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(
+                params
             )
+            params = tr.clamp(params, 0, 1)
 
-        # Make the output audio consistent with the input audio
-        if audio_out.size(0) == 1 and not input_sample.is_mono():
-            audio_out = audio_out.repeat(2, 1)
-        elif audio_out.size(0) == 2 and input_sample.is_mono():
-            audio_out = tr.mean(audio_out, dim=0, keepdim=True)
+        # padding and chunking parameters to match audio
+        padded_params = nn.functional.pad(
+            params, [0, padding_amount], mode="replicate"
+        )
+        param_chunks = padded_params.split(buffer_size, dim=1)
 
-        return AudioSample(audio_out, output_sr)
+        out_chunks = [
+            model.forward(audio_chunk, param_chunk).clone()
+            for audio_chunk, param_chunk in tqdm(
+                zip(audio_chunks, param_chunks), total=len(audio_chunks)
+            )
+        ]
+
+    else:
+        out_chunks = [
+            model.forward(audio_chunk, None).clone()
+            for audio_chunk in tqdm(audio_chunks)
+        ]
+
+    audio_out = tr.hstack(out_chunks)[:, :audio_len]
+
+    model.reset()
+
+    if preferred_sr != output_sr:
+        audio_out = torchaudio.transforms.Resample(preferred_sr, output_sr)(
+            audio_out
+        )
+
+    return AudioSample(audio_out, output_sr)
+
+
+def run_inference_nonrealtime(
+    model: Union["NonRealtimeSampleQueueWrapper", ScriptModule],
+    input_sample: AudioSample,
+    preferred_sr: int,
+    numerical_params: Optional[Tensor] = None,
+    text_params: Optional[List[str]] = None,
+    tokens_params: Optional[List[List[int]]] = None,
+    output_sr: int = 44100,
+) -> List[AudioSample]:
+    audio = input_sample.audio
+    if input_sample.sr != preferred_sr:
+        audio = torchaudio.transforms.Resample(input_sample.sr, preferred_sr)(audio)
+    
+    # TODO(bt): Support for multiple input audios
+    audio = [audio] * len(model.get_audio_in_channels())
+    outputs = model.forward_non_realtime(audio, numerical_params, text_params, tokens_params)
+    model.reset()
+    if output_sr != preferred_sr:
+        for i in range(len(outputs)):
+            resampled = torchaudio.transforms.Resample(preferred_sr, output_sr)(outputs[i])
+            outputs[i] = AudioSample(resampled, output_sr)
+    else:
+        outputs = [AudioSample(x, preferred_sr) for x in outputs]
+    return outputs

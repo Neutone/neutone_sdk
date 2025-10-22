@@ -33,6 +33,7 @@ class WaveformToWaveformBase(NeutoneModel):
 
     def __init__(self, model: nn.Module, use_debug_mode: bool = True) -> None:
         super().__init__(model, use_debug_mode)
+        self.realtime = True
         self.in_n_ch = 1 if self.is_input_mono() else 2
         # These inits are all temp for TorchScript typing, otherwise they would be None
         # These variables are only used if get_look_behind_samples() is greater than 0

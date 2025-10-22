@@ -34,6 +34,7 @@ class NonRealtimeSampleQueueWrapper(nn.Module):
         Compatible with the Neutone Gen plugin.
         """
         super().__init__()
+        self.realtime = False
         self.nrb = nrb
         self.daw_sr = daw_sr
         self.use_debug_mode = use_debug_mode

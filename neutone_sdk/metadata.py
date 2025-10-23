@@ -188,7 +188,7 @@ SCHEMA = {
 def validate_metadata(metadata: dict, realtime: bool) -> bool:
     if realtime:
         SCHEMA["required"] = required_params + extra_required_params_realtime
-        SCHEMA["properties"]["native_sample_rates"]["items"]["maximum"] = 65536
+        SCHEMA["properties"]["native_sample_rates"]["items"]["maximum"] = 96000
     try:
         validate(instance=metadata, schema=SCHEMA)
     except ValidationError as err:

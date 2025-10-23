@@ -59,7 +59,7 @@ def model_to_torchscript(
 
 
 def save_neutone_model(
-    model: "WaveformToWaveformBase",
+    model: ["WaveformToWaveformBase", "NonRealtimeBase"],
     root_dir: Path,
     dump_samples: bool = False,
     submission: bool = False,

@@ -1,6 +1,6 @@
 # Neutone SDK
 
-[![Release](https://img.shields.io/badge/Release-v1.4.0-green)](https://github.com/Neutone/neutone_sdk/releases/tag/v1.4.0)
+[![Release](https://img.shields.io/badge/Release-v1.5.0-green)](https://github.com/Neutone/neutone_sdk/releases/tag/v1.5.0)
 [![arXiv](https://img.shields.io/badge/arXiv-2508.09126-b31b1b.svg)](https://arxiv.org/abs/2508.09126)
 [![Plugin](https://img.shields.io/badge/Host%20Plugin-Neutone%20FX-orange)](https://neutone.ai/fx)
 [![ADC 2022](https://img.shields.io/badge/ADC%202022-blue?logo=youtube&labelColor=555)](https://youtu.be/hhbvjQ2v8Hk?t=1177)
@@ -11,6 +11,10 @@ It enables researchers to wrap their own PyTorch audio models and run them in th
 We offer functionality for both loading models locally and contributing them to the library of models that are available to anyone running the plugin.
 By encapsulating common challenges such as variable buffer sizes, sample rate conversion, delay compensation, and control parameter handling within a unified, model-agnostic interface, our framework enables seamless interoperability between neural models and host plugins while allowing users to work entirely in Python. 
 To date, the SDK has powered various different applications such as audio effect emulation, timbre transfer, and sample generation, as well as seen adoption by researchers, educators, companies, and artists alike.
+
+Currently we provide two different plugins:
+- FX for realtime models
+- Gen for non-realtime models, currently in beta.
 
 ## Why use the Neutone SDK
 
@@ -56,7 +60,26 @@ pip install neutone_sdk
 
 ## Downloading the Plugin
 
-The Neutone Plugin is available at [https://neutone.space](https://neutone.space). We currently offer VST3 and AU plugins that can be used to load the models created with this SDK. Please visit the website for more information.
+### FX
+
+The Neutone FX Plugin is available at [https://neutone.ai/fx](https://neutone.ai/fx). We currently offer VST3 and AU plugins that can be used to load the models created with this SDK. Please visit the website for more information.
+
+### Gen
+
+The Neutone Gen Plugin is still in beta and can be directly downloaded from the links below:
+- [MacOS ARM](https://dev.neutone.ai/neutone-gen/neutone-gen-arm64-0.2.0.dmg)
+- [Windows](https://dev.neutone.ai/neutone-gen/neutone-gen-0.2.0-installer.exe)
+
+
+Currently the Gen plugin does not provide similar store functionality to the FX plugin. During development simply drop your exported `.nm` model in the `models` folder that can be accessed from the UI.
+
+
+We provide the following pre-wrapped models:
+- [LoopGAN by Nao Tokui trained on a proprietary dataset](https://github.com/naotokui/LoopGAN) - [Download .nm model](https://dev.neutone.ai/neutone-gen/loopgan_nao_tokui.nm)
+- [LoopGAN trained on the WaivOps EDM-HSE dataset](https://github.com/patchbanks/WaivOps-EDM-HSE) - [Download .nm model](https://dev.neutone.ai/neutone-gen/loopgan_4bars_edm_hse.nm)
+- [Stable Audio Open Small](https://huggingface.co/stabilityai/stable-audio-open-1.0) - [Download .nm model](https://dev.neutone.ai/neutone-gen/stable_audio_open_small.nm)
+- [HT Demucs](https://github.com/facebookresearch/demucs) - [Download .nm model](https://dev.neutone.ai/neutone-gen/ht_demucs.nm)
+
 
 <a name="examples"/>
 
@@ -64,8 +87,9 @@ The Neutone Plugin is available at [https://neutone.space](https://neutone.space
 
 If you just want to wrap a model without going through a detailed description of what everything does we prepared these examples for you.
 
-- The clipper example shows how to wrap a very simple PyTorch module that does not contain any AI model. Check it out for getting a high level overview of what is needed for wrapping a model. It is available at [examples/example_clipper.py](examples/example_clipper.py).
-- An example with a simple convolutional model based on [Randomized Overdrive Neural Networks](https://csteinmetz1.github.io/ronn/) can be found at [examples/example_overdrive-random.py](examples/example_overdrive-random.py).
+### FX
+- The clipper example shows how to wrap a very simple PyTorch module that does not contain any AI model. Check it out for getting a high level overview of what is needed for wrapping a model. It is available at [examples/neutone_fx/example_clipper.py](examples/neutone_fx/example_clipper.py).
+- An example with a simple convolutional model based on [Randomized Overdrive Neural Networks](https://csteinmetz1.github.io/ronn/) can be found at [examples/neutone_fx/example_overdrive-random.py](examples/neutone_fx/example_overdrive-random.py).
 - We also have Notebooks for more complicated models showing the entire workflow from training to exporting them using Neutone:
     - [TCN FX Emulation](https://colab.research.google.com/drive/1apINsljr6jXGP3Nh3_ISbeT2jgeKn5nP?usp=sharing)
     - [DDSP Timbre Transfer](https://colab.research.google.com/drive/1IUuxJ_DhhLHVvMcvbaBPVLRQK53yMOvd)
@@ -73,6 +97,9 @@ If you just want to wrap a model without going through a detailed description of
     - [NoiseBandNet Audio Reconstruction](https://colab.research.google.com/drive/1KJij2CqhLf7ac6aljMckFL71WJrCNg66?usp=sharing)
     - [GCN FX Emulation](https://github.com/francescopapaleo/neural-audio-spring-reverb/blob/main/notebooks/neutone_GCN_demo.ipynb)
 
+### Gen
+- We provide the same simple clipper example as above, but using the NonRealtime Gen wrappers at [examples/neutone_gen/example_clipper.py](examples/neutone_gen/example_clipper.py)
+- A more intricate example of how to wrap a text to audio model is available at [examples/neutone_gen/example_musicgen_load.py](examples/neutone_gen/example_musicgen_load.py). This showcases how a tokenizer can be used and requires a traced or scripted musicgen model.
 
 <a name="description"/>
 
@@ -330,11 +357,8 @@ Similar to benchmarking, it can be ran at different combinations of sample rates
 We welcome any contributions to the SDK. Please add types wherever possible and use the `black` formatter for readability.
 
 The current roadmap is:
-- Adding a TCN library and an overhaul of the TCN-based example models
-- Supporting non-realtime models
-- Supporting models with multiple inputs and / or outputs
-- Supporting more and different types of parameters
 - Looking into alternatives for TorchScript
+- Extend support for non-realtime models
 
 <a name="credits"/>
 
